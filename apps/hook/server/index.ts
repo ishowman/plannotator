@@ -902,7 +902,20 @@ if (args[0] === "sessions") {
           process.exit(1);
         }
         if (resolved.kind === "not_found") {
-          console.error(`File not found: ${resolved.input}`);
+          // Check if file exists but has unsupported type
+          const resolvedPath = resolveUserPath(resolved.input, projectRoot);
+          const fileExists = existsSync(resolvedPath);
+
+          if (fileExists) {
+            const ext = path.extname(resolvedPath).toLowerCase();
+            console.error(
+              `File type not supported: ${ext}\n` +
+              `Only .md, .mdx, .html, .htm files are supported.\n` +
+              `For code review, use: plannotator review [file]`
+            );
+          } else {
+            console.error(`File not found: ${resolved.input}`);
+          }
           process.exit(1);
         }
 
