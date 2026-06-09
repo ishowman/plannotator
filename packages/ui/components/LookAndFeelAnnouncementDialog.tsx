@@ -79,7 +79,7 @@ export const LookAndFeelAnnouncementDialog: React.FC<LookAndFeelAnnouncementDial
               <div className="flex items-start justify-between gap-4">
                 <h3 className="font-semibold text-2xl mb-1.5">Plannotator 0.20.0 is here</h3>
                 <a
-                  href="https://github.com/backnotprop/plannotator/releases"
+                  href="https://github.com/backnotprop/plannotator/releases/tag/v0.20.0"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="shrink-0 mt-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
