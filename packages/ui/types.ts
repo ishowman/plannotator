@@ -57,7 +57,7 @@ export type AlertKind = 'note' | 'tip' | 'warning' | 'caution' | 'important';
 
 export interface Block {
   id: string;
-  type: 'paragraph' | 'heading' | 'blockquote' | 'list-item' | 'code' | 'hr' | 'table' | 'html' | 'directive';
+  type: 'paragraph' | 'heading' | 'blockquote' | 'list-item' | 'code' | 'hr' | 'table' | 'html' | 'directive' | 'math';
   content: string; // Plain text, or raw (unsanitized) HTML for type === 'html'
   level?: number; // For headings (1-6) or list indentation
   language?: string; // For code blocks (e.g., 'rust', 'typescript')
@@ -68,6 +68,7 @@ export interface Block {
   directiveKind?: string; // For directive containers (e.g. ':::note' → 'note')
   order: number; // Sorting order
   startLine: number; // 1-based line number in source
+  sourceLineCount?: number; // Number of source lines consumed when it differs from content lines
 }
 
 export interface DiffResult {

@@ -293,6 +293,48 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
       continue;
     }
 
+    // Display math: $$ ... $$
+    if (trimmed.startsWith('$$')) {
+      flush();
+      const mathStartLine = currentLineNum;
+      const firstLineAfterOpening = trimmed.slice(2).trim();
+      const closesOnOpeningLine =
+        firstLineAfterOpening.endsWith('$$') &&
+        (firstLineAfterOpening.length > 2 || trimmed.length >= 4);
+      const mathLines: string[] = [];
+
+      if (closesOnOpeningLine && firstLineAfterOpening.length > 2) {
+        mathLines.push(firstLineAfterOpening.slice(0, -2).trim());
+      } else if (!closesOnOpeningLine && firstLineAfterOpening.length > 0) {
+        mathLines.push(firstLineAfterOpening);
+      }
+
+      if (!closesOnOpeningLine) {
+        while (i + 1 < lines.length) {
+          i++;
+          const nextTrimmed = lines[i].trim();
+          if (nextTrimmed.endsWith('$$')) {
+            const beforeClosing = lines[i].replace(/\s*\$\$\s*$/, '');
+            if (beforeClosing.trim().length > 0) {
+              mathLines.push(beforeClosing);
+            }
+            break;
+          }
+          mathLines.push(lines[i]);
+        }
+      }
+
+      blocks.push({
+        id: `block-${currentId++}`,
+        type: 'math',
+        content: mathLines.join('\n'),
+        order: currentId,
+        startLine: mathStartLine,
+        sourceLineCount: i + contentStartLine - mathStartLine + 1,
+      });
+      continue;
+    }
+
     // Tables (lines starting with |)
     if (trimmed.startsWith('|')) {
       flush();
@@ -502,6 +544,9 @@ export interface ExportAnnotationsOptions {
 
 /** Compute the end line of a block from its content and type. */
 const blockEndLine = (block: Block): number => {
+  if (block.sourceLineCount && block.sourceLineCount > 0) {
+    return block.startLine + block.sourceLineCount - 1;
+  }
   if (!block.content) return block.startLine;
   const contentLines = block.content.split('\n').length;
   if (block.type === 'code') return block.startLine + contentLines + 1;

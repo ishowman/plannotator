@@ -1,5 +1,7 @@
 /* Plannotator Theme System — imports all themes, provides Tailwind bridge + base styles */
 
+@import "katex/dist/katex.min.css";
+
 /* Theme files — each defines .theme-{name} (dark) and .theme-{name}.light */
 @import "./themes/plannotator.css";
 @import "./themes/claude-plus.css";
@@ -196,6 +198,27 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-feature-settings: "ss01", "ss02", "cv01";
+}
+
+.math-inline {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: -0.08em;
+}
+
+.math-block {
+  max-width: 100%;
+}
+
+.math-inline .katex,
+.math-block .katex {
+  color: inherit;
+  font-size: 1.02em;
+}
+
+.math-block .katex-display {
+  margin: 0;
+  text-align: center;
 }
 
 /* Subtle grid background */

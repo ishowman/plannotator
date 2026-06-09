@@ -7,6 +7,7 @@ import { getImageSrc } from "./ImageThumbnail";
 import { useCodePathValidation, type CodePathValidationContextValue } from "./CodePathValidationContext";
 import type { ValidationEntry } from "../hooks/useValidatedCodePaths";
 import { CodeFilePicker } from "./CodeFilePicker";
+import { renderMathToHtml } from "./blocks/MathBlock";
 
 /**
  * Decide how a candidate code-file path should render based on validation state:
@@ -260,6 +261,17 @@ const CodeFileIcon = () => (
   </svg>
 );
 
+const InlineMath: React.FC<{ tex: string }> = ({ tex }) => {
+  const html = useMemo(() => renderMathToHtml(tex, false), [tex]);
+
+  return (
+    <span
+      className="math-inline text-foreground"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+};
+
 // Trim trailing sentence punctuation from a bare URL, but keep closing
 // brackets when they balance an opener inside the URL (Wikipedia-style
 // https://…/Function_(mathematics) should keep its closing paren).
@@ -381,7 +393,7 @@ function emitPlainTextWithBareUrls(
  * Scanner that walks a text string and emits React nodes for inline markdown:
  * emphasis (**bold**, *italic*, _italic_, ***both***), `code`, ~~strikethrough~~,
  * [label](url) / ![alt](src) / <autolink>, bare https:// URLs, [[wiki-links]],
- * hex color swatches (#fff / #123abc), @mentions, #issue-refs, and backslash
+ * inline math ($...$), hex color swatches (#fff / #123abc), @mentions, #issue-refs, and backslash
  * escapes. Plain-text chunks outside these patterns pass through
  * `transformPlainText` for emoji shortcodes + smart punctuation.
  */
@@ -412,13 +424,37 @@ export const InlineMarkdown: React.FC<{
       continue;
     }
 
-    // Backslash escaping: \. \* \_ \` \[ \~ etc. — emit literal char, hide backslash
-    match = remaining.match(/^\\([\\*_`\[\]~!.()\-#>+|{}&])/);
+    // Backslash escaping: \. \* \_ \` \[ \~ \$ etc. — emit literal char, hide backslash
+    match = remaining.match(/^\\([\\*_`\[\]~!.()\-#>+|{}&$])/);
     if (match) {
       parts.push(match[1]);
       remaining = remaining.slice(2);
       previousChar = match[1];
       continue;
+    }
+
+    // Inline math: $...$ — require non-space content and avoid $$ display fences.
+    if (remaining.startsWith('$') && previousChar !== '$' && !remaining.startsWith('$$')) {
+      let end = -1;
+      for (let i = 1; i < remaining.length; i++) {
+        if (remaining[i] === '\\') {
+          i++;
+          continue;
+        }
+        if (remaining[i] === '$') {
+          end = i;
+          break;
+        }
+      }
+      if (end > 1) {
+        const tex = remaining.slice(1, end);
+        if (tex.trim() && !/^\s|\s$/.test(tex)) {
+          parts.push(<InlineMath key={key++} tex={tex} />);
+          remaining = remaining.slice(end + 1);
+          previousChar = '$';
+          continue;
+        }
+      }
     }
 
     // Bare URL autolink: https://… preceded by word boundary.
@@ -973,7 +1009,7 @@ export const InlineMarkdown: React.FC<{
     // `h` mid-word (e.g. ":heart:", "hello"), and splitting on it breaks
     // multi-char patterns like emoji shortcodes. Bare URLs are instead
     // detected inline via emitPlainTextWithBareUrls() below.
-    const nextSpecial = remaining.slice(1).search(/[\*_`\[!~\\<#@]/);
+    const nextSpecial = remaining.slice(1).search(/[\*_`\[!~\\<#@$]/);
     const plainText = nextSpecial === -1 ? remaining : remaining.slice(0, nextSpecial + 1);
     emitPlainTextWithBareUrls(plainText, previousChar, parts, () => key++, onOpenCodeFile, validation, imageBaseDir);
     previousChar = plainText[plainText.length - 1] || previousChar;

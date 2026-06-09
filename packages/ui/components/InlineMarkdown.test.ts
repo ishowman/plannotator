@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'bun:test';
-import React from 'react';
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { InlineMarkdown, trimUrlTail } from './InlineMarkdown';
 
 function renderInline(text: string): string {
-  return renderToStaticMarkup(React.createElement(InlineMarkdown, { text }));
+  return renderToStaticMarkup(createElement(InlineMarkdown, { text }));
 }
 
 describe('trimUrlTail', () => {
@@ -78,5 +78,51 @@ describe('InlineMarkdown angle autolinks', () => {
     const html = renderInline('Broken <xref:path_to_api`22?hello is plain.');
 
     expect(html).toBe('Broken &lt;xref:path_to_api`22?hello is plain.');
+  });
+
+  test('preserves incomplete angle autolink prose', () => {
+    const html = renderInline('Try <custom:scheme!');
+
+    expect(html).toBe('Try &lt;custom:scheme!');
+  });
+
+  test('treats angle-bracket comparisons as prose', () => {
+    const html = renderInline('Use a < b > c < d > e.');
+
+    expect(html).toBe('Use a &lt; b &gt; c &lt; d &gt; e.');
+  });
+
+  test('renders adjacent angle autolinks correctly', () => {
+    const html = renderInline('See <https://a.com> then <https://b.com>.');
+
+    expect(html).toContain('href="https://a.com"');
+    expect(html).toContain('href="https://b.com"');
+  });
+});
+
+describe('InlineMarkdown math', () => {
+  test('renders inline math with KaTeX markup', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Area is $A=\\pi r^2$.' }));
+    expect(html).toContain('katex');
+    expect(html).toContain('math-inline');
+    expect(html).toContain('mord mathnormal');
+  });
+
+  test('does not render escaped dollar-delimited text as math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Price is \\$5$ today' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$5$ today');
+  });
+
+  test('does not treat spaced dollar text as inline math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Keep $ not math $ here' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$ not math $ here');
+  });
+
+  test('leaves double-dollar text to the block parser', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: '$$x$$' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$$x$$');
   });
 });
