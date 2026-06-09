@@ -194,6 +194,24 @@ describe("parseMarkdownToBlocks — display math", () => {
     expect(blocks[0].content).toBe("");
     expect(blocks[1].content).toBe("After");
   });
+
+  test("multi-line \\[ block produces a math block", () => {
+    const md = "\\[\n\\int_0^1 x^2 dx = \\frac{1}{3}\n\\]";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("math");
+    expect(blocks[0].content).toBe("\\int_0^1 x^2 dx = \\frac{1}{3}");
+    expect(blocks[0].startLine).toBe(1);
+    expect(blocks[0].sourceLineCount).toBe(3);
+  });
+
+  test("single-line \\[ block produces a math block", () => {
+    const blocks = parseMarkdownToBlocks("before\n\n\\[ E = mc^2 \\]\n\nafter");
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph", "math", "paragraph"]);
+    expect(blocks[1].content).toBe("E = mc^2");
+    expect(blocks[1].startLine).toBe(3);
+    expect(blocks[1].sourceLineCount).toBe(1);
+  });
 });
 
 describe("parseMarkdownToBlocks — tables", () => {

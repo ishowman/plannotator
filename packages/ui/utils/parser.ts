@@ -335,6 +335,48 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
       continue;
     }
 
+    // Display math: \[ ... \]
+    if (trimmed.startsWith('\\[')) {
+      flush();
+      const mathStartLine = currentLineNum;
+      const firstLineAfterOpening = trimmed.slice(2).trim();
+      const closesOnOpeningLine =
+        firstLineAfterOpening.endsWith('\\]') &&
+        (firstLineAfterOpening.length > 2 || trimmed.length >= 4);
+      const mathLines: string[] = [];
+
+      if (closesOnOpeningLine && firstLineAfterOpening.length > 2) {
+        mathLines.push(firstLineAfterOpening.slice(0, -2).trim());
+      } else if (!closesOnOpeningLine && firstLineAfterOpening.length > 0) {
+        mathLines.push(firstLineAfterOpening);
+      }
+
+      if (!closesOnOpeningLine) {
+        while (i + 1 < lines.length) {
+          i++;
+          const nextTrimmed = lines[i].trim();
+          if (nextTrimmed.endsWith('\\]')) {
+            const beforeClosing = lines[i].replace(/\s*\\\]\s*$/, '');
+            if (beforeClosing.trim().length > 0) {
+              mathLines.push(beforeClosing);
+            }
+            break;
+          }
+          mathLines.push(lines[i]);
+        }
+      }
+
+      blocks.push({
+        id: `block-${currentId++}`,
+        type: 'math',
+        content: mathLines.join('\n'),
+        order: currentId,
+        startLine: mathStartLine,
+        sourceLineCount: i + contentStartLine - mathStartLine + 1,
+      });
+      continue;
+    }
+
     // Tables (lines starting with |)
     if (trimmed.startsWith('|')) {
       flush();

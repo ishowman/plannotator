@@ -424,6 +424,28 @@ export const InlineMarkdown: React.FC<{
       continue;
     }
 
+    // Inline math: \( ... \) or $...$ — require non-space content and avoid
+    // display fences.
+    if (remaining.startsWith('\\(')) {
+      let end = -1;
+      for (let i = 2; i < remaining.length - 1; i++) {
+        if (remaining[i] === '\\' && remaining[i + 1] === ')') {
+          if (i > 0 && remaining[i - 1] === '\\') continue;
+          end = i;
+          break;
+        }
+      }
+      if (end > 1) {
+        const tex = remaining.slice(2, end);
+        if (tex.trim()) {
+          parts.push(<InlineMath key={key++} tex={tex} />);
+          remaining = remaining.slice(end + 2);
+          previousChar = ')';
+          continue;
+        }
+      }
+    }
+
     // Backslash escaping: \. \* \_ \` \[ \~ \$ etc. — emit literal char, hide backslash
     match = remaining.match(/^\\([\\*_`\[\]~!.()\-#>+|{}&$])/);
     if (match) {

@@ -120,6 +120,13 @@ describe('InlineMarkdown math', () => {
     expect(html).toContain('$ not math $ here');
   });
 
+  test('renders parenthesized inline math with KaTeX markup', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Area is \\(A=\\pi r^2\\).' }));
+    expect(html).toContain('katex');
+    expect(html).toContain('math-inline');
+    expect(html).toContain('mord mathnormal');
+  });
+
   test('leaves double-dollar text to the block parser', () => {
     const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: '$$x$$' }));
     expect(html).not.toContain('katex');
