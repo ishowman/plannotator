@@ -7,7 +7,7 @@ import { getImageSrc } from "./ImageThumbnail";
 import { useCodePathValidation, type CodePathValidationContextValue } from "./CodePathValidationContext";
 import type { ValidationEntry } from "../hooks/useValidatedCodePaths";
 import { CodeFilePicker } from "./CodeFilePicker";
-import { renderMathToHtml } from "./blocks/MathBlock";
+import { normalizeMathTex, renderMathToHtml } from "./blocks/MathBlock";
 
 /**
  * Decide how a candidate code-file path should render based on validation state:
@@ -262,15 +262,30 @@ const CodeFileIcon = () => (
 );
 
 const InlineMath: React.FC<{ tex: string }> = ({ tex }) => {
-  const html = useMemo(() => renderMathToHtml(tex, false), [tex]);
+  const normalizedTex = normalizeMathTex(tex);
+  const html = useMemo(() => renderMathToHtml(normalizedTex, false), [normalizedTex]);
 
   return (
     <span
       className="math-inline text-foreground"
+      data-math-tex={normalizedTex}
+      data-math-display="false"
+      aria-label={normalizedTex}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 };
+
+function canRenderSpacedDollarMath(tex: string): boolean {
+  const trimmed = normalizeMathTex(tex);
+  if (!trimmed) return false;
+  if (!/^\s|\s$/.test(tex)) return true;
+  return (
+    /\\[a-zA-Z]+/.test(trimmed) ||
+    /[=^_{}+\-*/<>|]/.test(trimmed) ||
+    /^[a-zA-Z]$/.test(trimmed)
+  );
+}
 
 // Trim trailing sentence punctuation from a bare URL, but keep closing
 // brackets when they balance an opener inside the URL (Wikipedia-style
@@ -470,7 +485,7 @@ export const InlineMarkdown: React.FC<{
       }
       if (end > 1) {
         const tex = remaining.slice(1, end);
-        if (tex.trim() && !/^\s|\s$/.test(tex)) {
+        if (canRenderSpacedDollarMath(tex)) {
           parts.push(<InlineMath key={key++} tex={tex} />);
           remaining = remaining.slice(end + 1);
           previousChar = '$';

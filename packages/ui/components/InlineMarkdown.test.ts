@@ -120,6 +120,25 @@ describe('InlineMarkdown math', () => {
     expect(html).toContain('$ not math $ here');
   });
 
+  test('renders spaced dollar-delimited TeX as inline math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: '$ \\varepsilon \\sim \\mathcal{N}(0,\\sigma^2) $' }));
+    expect(html).toContain('katex');
+    expect(html).toContain('math-inline');
+    expect(html).toContain('data-math-tex="\\varepsilon \\sim \\mathcal{N}(0,\\sigma^2)"');
+  });
+
+  test('renders spaced single-variable dollar math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Target is $ y $.' }));
+    expect(html).toContain('katex');
+    expect(html).toContain('data-math-tex="y"');
+  });
+
+  test('does not treat spaced numeric dollar text as inline math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Price is $ 5 $ today' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$ 5 $ today');
+  });
+
   test('renders parenthesized inline math with KaTeX markup', () => {
     const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Area is \\(A=\\pi r^2\\).' }));
     expect(html).toContain('katex');

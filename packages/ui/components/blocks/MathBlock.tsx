@@ -6,6 +6,8 @@ type MathBlockProps = {
   block: Block;
 };
 
+export const normalizeMathTex = (tex: string): string => tex.trim();
+
 export const renderMathToHtml = (tex: string, displayMode: boolean): string => (
   katex.renderToString(tex, {
     displayMode,
@@ -17,13 +19,17 @@ export const renderMathToHtml = (tex: string, displayMode: boolean): string => (
 );
 
 export const MathBlock: React.FC<MathBlockProps> = ({ block }) => {
-  const html = useMemo(() => renderMathToHtml(block.content, true), [block.content]);
+  const tex = normalizeMathTex(block.content);
+  const html = useMemo(() => renderMathToHtml(tex, true), [tex]);
 
   return (
     <div
       className="math-block my-5 overflow-x-auto py-2 text-foreground"
       data-block-id={block.id}
       data-block-type="math"
+      data-math-tex={tex}
+      data-math-display="true"
+      aria-label={tex}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
