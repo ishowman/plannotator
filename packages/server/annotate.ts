@@ -35,6 +35,7 @@ import { existsSync } from "fs";
 import { dirname, resolve as resolvePath } from "path";
 import { isWithinDirectory } from "@plannotator/shared/html-assets-node";
 import { isWSL } from "./browser";
+import { handleOpenInApps, handleOpenIn } from "./open-in";
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { createHtmlAssetRegistry } from "./html-assets";
@@ -326,6 +327,30 @@ export async function startAnnotateServer(
 
           if (url.pathname === "/api/share-html" && req.method === "GET") {
             return loadShareHtml(url.searchParams.get("path"));
+          }
+
+          // API: List apps the host can open a file in (Open in App control).
+          if (url.pathname === "/api/open-in/apps" && req.method === "GET") {
+            // A URL annotation source has no local file to open — mirror Pi and
+            // report unavailable so the UI hides the control entirely.
+            if (/^https?:\/\//i.test(filePath)) {
+              return Response.json({ available: false, apps: [] });
+            }
+            return handleOpenInApps();
+          }
+
+          // API: Open the annotated file in an app. A URL source has no local
+          // file; any other open is confined to the same reference roots
+          // /api/doc serves from, so any linked doc the user can view can also
+          // be opened — and nothing outside the session can.
+          if (url.pathname === "/api/open-in" && req.method === "POST") {
+            if (/^https?:\/\//i.test(filePath)) {
+              return Response.json(
+                { ok: false, error: "Open in app is unavailable for this source" },
+                { status: 400 },
+              );
+            }
+            return handleOpenIn(req, { resolveRoot: getReferenceRootPaths });
           }
 
           // API: Update user config (write-back to ~/.plannotator/config.json)

@@ -63,6 +63,7 @@ import { type PRMetadata, type PRReviewFileComment, type PRStackTree, type PRLis
 import { AI_QUERY_ENDPOINT, createAIRuntime } from "./ai-runtime";
 import type { AIEndpoints } from "@plannotator/ai";
 import { isWSL } from "./browser";
+import { handleOpenInApps, handleOpenIn } from "./open-in";
 import type { LocalWorkspaceReview, WorkspaceDiffType } from "./review-workspace";
 import { handleCodeNavResolve, extractChangedFiles } from "./code-nav";
 
@@ -336,6 +337,16 @@ export async function startReviewServer(
         ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd)
         ?? process.cwd();
     }
+    return options.agentCwd ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd) ?? process.cwd();
+  };
+  // Strict launch root for /api/open-in: in PR pool mode only the PR's own
+  // checkout is acceptable — never the launch-repo fallback resolveAgentCwd
+  // uses, which would open a file from the wrong tree. Returns [] until the
+  // checkout is ready so resolveOpenInTarget rejects (the button is gated off
+  // then anyway); non-PR resolves to the working tree as usual.
+  const resolveOpenInRoot = (): string | string[] => {
+    if (workspace) return workspace.root;
+    if (options.worktreePool && prMetadata) return resolvePRLocalCwd() ?? [];
     return options.agentCwd ?? resolveVcsCwd(currentDiffType as DiffType, gitContext?.cwd) ?? process.cwd();
   };
   // Async sibling of resolveAgentCwd: waits for the current PR's checkout
@@ -751,8 +762,16 @@ export async function startReviewServer(
               shareBaseUrl,
               repoInfo,
               isWSL: wslFlag,
-              ...(options.agentCwd && { agentCwd: options.agentCwd }),
-              ...(workspace && { agentCwd: workspace.root }),
+              // PR mode advertises the ready PR checkout (null while warming), so
+              // the Open-in button gates correctly from the initial load — not
+              // the launch repo. Non-PR keeps the workspace/local cwd.
+              ...(isPRMode
+                ? { agentCwd: resolvePRLocalCwd() ?? null }
+                : workspace
+                  ? { agentCwd: workspace.root }
+                  : options.agentCwd
+                    ? { agentCwd: options.agentCwd }
+                    : {}),
               ...(isPRMode && {
                 prMetadata,
                 platformUser,
@@ -769,21 +788,41 @@ export async function startReviewServer(
             });
           }
 
+          // API: List apps the host can open a file in (Open in App control).
+          if (url.pathname === "/api/open-in/apps" && req.method === "GET") {
+            return handleOpenInApps();
+          }
+
+          // API: Open a file in an app. Resolves the repo-relative `git diff`
+          // path against the VCS root server-side (resolveAgentCwd folds in
+          // workspace.root, the PR local checkout, resolveVcsCwd(gitContext.cwd),
+          // and process.cwd()) — not the client `base`, which is wrong when
+          // review runs from a subdirectory — then containment-checks it.
+          if (url.pathname === "/api/open-in" && req.method === "POST") {
+            return handleOpenIn(req, { resolveRoot: resolveOpenInRoot });
+          }
+
           // API: cheap staleness probe — has the underlying VCS state changed
           // since the current diff snapshot was computed? Best-effort: anything
           // that cannot be fingerprinted reports fresh (no banner).
           if (url.pathname === "/api/diff/fresh" && req.method === "GET") {
+            // In PR review the local checkout can appear (pool warmup) or change
+            // (in-place PR switch) after the initial /api/diff, so re-advertise it
+            // on every probe — the Open-in control tracks the current checkout
+            // without a page reload. resolvePRLocalCwd() is null until a usable
+            // checkout exists. Non-PR sessions never carry this field.
+            const prCwdAdvert = isPRMode ? { agentCwd: resolvePRLocalCwd() ?? null } : {};
             const baseline = currentFingerprint;
-            if (baseline == null) return Response.json({ fresh: true });
+            if (baseline == null) return Response.json({ fresh: true, ...prCwdAdvert });
             const probe = await computeDiffFingerprint();
             // A diff switch landing mid-probe replaces the snapshot (and its
             // fingerprint); report fresh and let the next poll compare
             // against the new baseline.
-            if (currentFingerprint !== baseline) return Response.json({ fresh: true });
+            if (currentFingerprint !== baseline) return Response.json({ fresh: true, ...prCwdAdvert });
             const fresh = probe == null || probe === baseline;
             // The probe fingerprint lets the client distinguish "still the
             // same staleness I dismissed" from "ANOTHER change landed since".
-            return Response.json({ fresh, ...(fresh ? {} : { fingerprint: probe }) });
+            return Response.json({ fresh, ...(fresh ? {} : { fingerprint: probe }), ...prCwdAdvert });
           }
 
           // API: Get semantic diff content
@@ -1129,6 +1168,9 @@ export async function startReviewServer(
                 rawPatch: currentPatch,
                 gitRef: currentGitRef,
                 prMetadata: pr.metadata,
+                // The new PR's checkout (null while warming) so Open-in re-roots
+                // immediately on switch instead of waiting for the 5s probe.
+                agentCwd: resolvePRLocalCwd(pr.metadata) ?? null,
                 prStackInfo,
                 prStackTree,
                 prDiffScope: currentPRDiffScope,

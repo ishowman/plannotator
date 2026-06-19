@@ -42,6 +42,9 @@ export interface ReviewState {
   /** PR/MR review scope label, e.g. "Layer diff" or "Full stack diff". */
   prReviewScope?: string;
   prDiffScope?: PRDiffScope;
+  /** Agent working directory — base for resolving repo-relative diff paths to
+   *  absolute (e.g. for the Open-in-app control). */
+  agentCwd?: string | null;
 
   // Annotations
   allAnnotations: CodeAnnotation[];
@@ -108,11 +111,7 @@ export interface ReviewState {
   openDiffFile: (filePath: string) => void;
   onAllFilesVisibleFileChange: (filePath: string | null) => void;
   isAllFilesActive: boolean;
-  isSemanticDiffActive: boolean;
   semanticDiffAvailable: boolean;
-  onSemanticDiffUnavailable: () => void;
-  onSemanticDiffLoadError: () => boolean;
-  onSemanticDiffLoadSuccess: () => void;
 
   // Tour
   openTourPanel: (jobId: string) => void;
