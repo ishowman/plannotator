@@ -267,7 +267,7 @@ const InlineMath: React.FC<{ tex: string }> = ({ tex }) => {
 
   return (
     <span
-      className="math-inline text-foreground"
+      className="math-inline math-annotatable text-foreground"
       data-math-tex={normalizedTex}
       data-math-display="false"
       aria-label={normalizedTex}

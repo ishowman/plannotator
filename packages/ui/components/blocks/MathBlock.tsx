@@ -24,7 +24,7 @@ export const MathBlock: React.FC<MathBlockProps> = ({ block }) => {
 
   return (
     <div
-      className="math-block my-5 overflow-x-auto py-2 text-foreground"
+      className="math-block math-annotatable my-5 overflow-x-auto py-2 text-foreground"
       data-block-id={block.id}
       data-block-type="math"
       data-math-tex={tex}
