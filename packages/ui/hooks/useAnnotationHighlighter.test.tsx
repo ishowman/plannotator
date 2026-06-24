@@ -11,11 +11,11 @@ function Harness({
   mode,
   onAdd,
 }: {
-  mode: 'redline' | 'selection';
+  mode: 'redline' | 'selection' | 'comment';
   onAdd: (ann: Annotation) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  useAnnotationHighlighter({
+  const hook = useAnnotationHighlighter({
     containerRef,
     annotations: [],
     selectedAnnotationId: null,
@@ -26,7 +26,7 @@ function Harness({
   return (
     <div ref={containerRef}>
       <p data-block-id="block-1">
-        Formula{' '}
+        <span data-testid="text-before">Formula </span>
         <span
           className="math-inline math-annotatable"
           data-math-tex="E = mc^2"
@@ -34,6 +34,56 @@ function Harness({
         >
           E = mc^2
         </span>
+        <span data-testid="text-after"> is important</span>
+      </p>
+      {hook.commentPopover && (
+        <button
+          data-testid="submit-comment"
+          onClick={() => hook.handleCommentSubmit('please check')}
+        >
+          submit
+        </button>
+      )}
+      <button
+        data-testid="trigger-range"
+        onClick={() => {
+          const selection = window.getSelection();
+          if (!selection || selection.rangeCount === 0) return;
+          hook.highlighterRef.current?.fromRange(selection.getRangeAt(0));
+        }}
+      >
+        trigger
+      </button>
+    </div>
+  );
+}
+
+function SelectionProbeHarness({
+  onSelect,
+}: {
+  onSelect: (id: string | null) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useAnnotationHighlighter({
+    containerRef,
+    annotations: [],
+    selectedAnnotationId: null,
+    mode: 'comment',
+    onSelectAnnotation: onSelect,
+  });
+
+  return (
+    <div ref={containerRef}>
+      <p data-block-id="block-1">
+        <span data-testid="text-before">Formula </span>
+        <span
+          className="math-inline math-annotatable"
+          data-math-tex="E = mc^2"
+          data-math-display="false"
+        >
+          E = mc^2
+        </span>
+        <span data-testid="text-after"> is important</span>
       </p>
     </div>
   );
@@ -66,6 +116,102 @@ describe('useAnnotationHighlighter math annotations', () => {
     expect(math!.classList.contains('annotation-highlight')).toBe(true);
     expect(math!.classList.contains('math-inline-annotation')).toBe(true);
     expect(math!.classList.contains('deletion')).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
+
+  test.skipIf(!hasDom)('commenting a mixed text and inline formula selection styles the formula too', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const annotations: Annotation[] = [];
+
+    await act(async () => {
+      root.render(<Harness mode="comment" onAdd={(ann) => annotations.push(ann)} />);
+    });
+
+    const before = host.querySelector<HTMLElement>('[data-testid="text-before"]');
+    const after = host.querySelector<HTMLElement>('[data-testid="text-after"]');
+    const math = host.querySelector<HTMLElement>('.math-annotatable');
+    expect(before).toBeTruthy();
+    expect(after).toBeTruthy();
+    expect(math).toBeTruthy();
+
+    const range = document.createRange();
+    range.setStart(before!.firstChild!, 0);
+    range.setEnd(after!.firstChild!, ' is'.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const trigger = host.querySelector<HTMLButtonElement>('[data-testid="trigger-range"]');
+    expect(trigger).toBeTruthy();
+
+    await act(async () => {
+      trigger!.click();
+    });
+
+    const submit = host.querySelector<HTMLButtonElement>('[data-testid="submit-comment"]');
+    expect(submit).toBeTruthy();
+
+    await act(async () => {
+      submit!.click();
+    });
+
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].type).toBe(AnnotationType.COMMENT);
+    expect(annotations[0].mathTargets).toEqual([
+      { blockId: 'block-1', tex: 'E = mc^2', displayMode: false },
+    ]);
+    expect(math!.dataset.bindId).toBe(annotations[0].id);
+    expect(math!.dataset.mathAnnotation).toBe('true');
+    expect(math!.classList.contains('annotation-highlight')).toBe(true);
+    expect(math!.classList.contains('math-inline-annotation')).toBe(true);
+    expect(math!.classList.contains('comment')).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
+
+  test.skipIf(!hasDom)('mixed text and formula mouseup is not swallowed by the math-only handler', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const selections: Array<string | null> = [];
+
+    await act(async () => {
+      root.render(<SelectionProbeHarness onSelect={(id) => selections.push(id)} />);
+    });
+
+    const before = host.querySelector<HTMLElement>('[data-testid="text-before"]');
+    const after = host.querySelector<HTMLElement>('[data-testid="text-after"]');
+    const math = host.querySelector<HTMLElement>('.math-annotatable');
+    expect(before).toBeTruthy();
+    expect(after).toBeTruthy();
+    expect(math).toBeTruthy();
+
+    const range = document.createRange();
+    range.setStart(before!.firstChild!, 0);
+    range.setEnd(after!.firstChild!, ' is'.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    let defaultPrevented = false;
+    await act(async () => {
+      defaultPrevented = !math!.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    expect(defaultPrevented).toBe(false);
+    expect(selections).toEqual([]);
 
     act(() => {
       root.unmount();

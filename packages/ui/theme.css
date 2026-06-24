@@ -201,9 +201,11 @@ body {
 }
 
 .math-inline {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   max-width: 100%;
-  vertical-align: -0.08em;
+  vertical-align: text-bottom;
+  line-height: 1;
 }
 
 .math-block {
@@ -214,6 +216,10 @@ body {
 .math-block .katex {
   color: inherit;
   font-size: 1.02em;
+}
+
+.math-inline .katex {
+  line-height: inherit;
 }
 
 .math-block .katex-display {
