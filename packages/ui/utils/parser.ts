@@ -293,13 +293,17 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
       continue;
     }
 
-    // Display math: $$ ... $$
+    // Display math: $$ ... $$ — only when a closing $$ actually exists. An
+    // unclosed $$ (a stray delimiter or informal money like "$$100k for infra")
+    // must NOT swallow the rest of the document: scan ahead without committing,
+    // and if there's no close, fall through and treat the line as ordinary text.
     if (trimmed.startsWith('$$')) {
-      flush();
       const mathStartLine = currentLineNum;
       const afterOpen = trimmed.slice(2);
       const mathLines: string[] = [];
       let remainder = '';
+      let closed = false;
+      let closeLine = i;
       // Find the closing $$ anywhere on the opening line (not just at its end),
       // so `$$x$$.` or `$$x$$ trailing` close correctly instead of running on.
       const inlineClose = afterOpen.indexOf('$$');
@@ -307,80 +311,101 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
         const body = afterOpen.slice(0, inlineClose).trim();
         if (body) mathLines.push(body);
         remainder = afterOpen.slice(inlineClose + 2).trim();
+        closed = true;
       } else {
-        if (afterOpen.trim()) mathLines.push(afterOpen.trim());
-        while (i + 1 < lines.length) {
-          i++;
-          const closeAt = lines[i].indexOf('$$');
+        const scanned: string[] = afterOpen.trim() ? [afterOpen.trim()] : [];
+        let j = i;
+        while (j + 1 < lines.length) {
+          j++;
+          const closeAt = lines[j].indexOf('$$');
           if (closeAt !== -1) {
-            const before = lines[i].slice(0, closeAt);
-            if (before.trim()) mathLines.push(before);
-            remainder = lines[i].slice(closeAt + 2).trim();
+            const before = lines[j].slice(0, closeAt);
+            if (before.trim()) scanned.push(before);
+            remainder = lines[j].slice(closeAt + 2).trim();
+            closed = true;
+            closeLine = j;
             break;
           }
-          mathLines.push(lines[i]);
+          scanned.push(lines[j]);
         }
+        if (closed) for (const s of scanned) mathLines.push(s);
       }
 
-      blocks.push({
-        id: `block-${currentId++}`,
-        type: 'math',
-        content: mathLines.join('\n'),
-        order: currentId,
-        startLine: mathStartLine,
-        sourceLineCount: i + contentStartLine - mathStartLine + 1,
-      });
-
-      // Trailing text after the closing $$ isn't math — reprocess it as its own
-      // line so it renders normally instead of being swallowed into the block.
-      if (remainder) {
-        lines[i] = remainder;
-        i--;
+      if (closed) {
+        flush();
+        i = closeLine;
+        blocks.push({
+          id: `block-${currentId++}`,
+          type: 'math',
+          content: mathLines.join('\n'),
+          order: currentId,
+          startLine: mathStartLine,
+          sourceLineCount: i + contentStartLine - mathStartLine + 1,
+        });
+        // Trailing text after the closing $$ isn't math — reprocess it as its own
+        // line so it renders normally instead of being swallowed into the block.
+        if (remainder) {
+          lines[i] = remainder;
+          i--;
+        }
+        continue;
       }
-      continue;
+      // No closing $$ found — not display math; fall through to normal handling.
     }
 
-    // Display math: \[ ... \]
+    // Display math: \[ ... \] — same unclosed-guard as $$ above: only treat as
+    // math when the closing \] exists, so a stray `\[deprecated\]`-style line or
+    // an unclosed `\[` doesn't swallow the rest of the document.
     if (trimmed.startsWith('\\[')) {
-      flush();
       const mathStartLine = currentLineNum;
       const afterOpen = trimmed.slice(2);
       const mathLines: string[] = [];
       let remainder = '';
+      let closed = false;
+      let closeLine = i;
       const inlineClose = afterOpen.indexOf('\\]');
       if (inlineClose !== -1) {
         const body = afterOpen.slice(0, inlineClose).trim();
         if (body) mathLines.push(body);
         remainder = afterOpen.slice(inlineClose + 2).trim();
+        closed = true;
       } else {
-        if (afterOpen.trim()) mathLines.push(afterOpen.trim());
-        while (i + 1 < lines.length) {
-          i++;
-          const closeAt = lines[i].indexOf('\\]');
+        const scanned: string[] = afterOpen.trim() ? [afterOpen.trim()] : [];
+        let j = i;
+        while (j + 1 < lines.length) {
+          j++;
+          const closeAt = lines[j].indexOf('\\]');
           if (closeAt !== -1) {
-            const before = lines[i].slice(0, closeAt);
-            if (before.trim()) mathLines.push(before);
-            remainder = lines[i].slice(closeAt + 2).trim();
+            const before = lines[j].slice(0, closeAt);
+            if (before.trim()) scanned.push(before);
+            remainder = lines[j].slice(closeAt + 2).trim();
+            closed = true;
+            closeLine = j;
             break;
           }
-          mathLines.push(lines[i]);
+          scanned.push(lines[j]);
         }
+        if (closed) for (const s of scanned) mathLines.push(s);
       }
 
-      blocks.push({
-        id: `block-${currentId++}`,
-        type: 'math',
-        content: mathLines.join('\n'),
-        order: currentId,
-        startLine: mathStartLine,
-        sourceLineCount: i + contentStartLine - mathStartLine + 1,
-      });
-
-      if (remainder) {
-        lines[i] = remainder;
-        i--;
+      if (closed) {
+        flush();
+        i = closeLine;
+        blocks.push({
+          id: `block-${currentId++}`,
+          type: 'math',
+          content: mathLines.join('\n'),
+          order: currentId,
+          startLine: mathStartLine,
+          sourceLineCount: i + contentStartLine - mathStartLine + 1,
+        });
+        if (remainder) {
+          lines[i] = remainder;
+          i--;
+        }
+        continue;
       }
-      continue;
+      // No closing \] found — not display math; fall through to normal handling.
     }
 
     // Tables (lines starting with |)

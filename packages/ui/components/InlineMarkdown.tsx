@@ -485,7 +485,13 @@ export const InlineMarkdown: React.FC<{
       }
       if (end > 1) {
         const tex = remaining.slice(1, end);
-        if (canRenderSpacedDollarMath(tex)) {
+        // Money guard: `$A$B` where a digit immediately follows the closing `$`
+        // is almost always two currency amounts ("$5-$10", "$50,000-$100,000",
+        // "$5/mo and tier B is $10/mo"), not inline math — real inline math never
+        // abuts a digit across the closing delimiter. Leave such text literal.
+        const afterClose = remaining[end + 1];
+        const looksLikeMoney = /^\s*\d/.test(tex) && afterClose !== undefined && /\d/.test(afterClose);
+        if (!looksLikeMoney && canRenderSpacedDollarMath(tex)) {
           parts.push(<InlineMath key={key++} tex={tex} />);
           remaining = remaining.slice(end + 1);
           previousChar = '$';

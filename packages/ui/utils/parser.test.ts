@@ -181,11 +181,14 @@ describe("parseMarkdownToBlocks — display math", () => {
     expect(blocks[1].content).toBe("Text after.");
   });
 
-  test("unclosed display math extends to EOF", () => {
-    const blocks = parseMarkdownToBlocks("$$\nx + y");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe("math");
-    expect(blocks[0].content).toBe("x + y");
+  test("unclosed display math does NOT swallow the rest of the document", () => {
+    // A stray/unclosed $$ (or informal money like "$$100k") must not consume every
+    // following block to EOF — it's treated as ordinary text and later content
+    // (headings, paragraphs) is preserved. Mirrors the unclosed-HTML-tag policy.
+    const blocks = parseMarkdownToBlocks("$$\nx + y\n\n## Later heading\n\nMore text.");
+    expect(blocks.some((b) => b.type === "math")).toBe(false);
+    expect(blocks.some((b) => b.type === "heading" && b.content === "Later heading")).toBe(true);
+    expect(blocks.some((b) => b.content === "More text.")).toBe(true);
   });
 
   test("empty single-line display math does not swallow following content", () => {

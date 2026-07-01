@@ -151,4 +151,28 @@ describe('InlineMarkdown math', () => {
     expect(html).not.toContain('katex');
     expect(html).toContain('$$x$$');
   });
+
+  test('does not render a dollar-amount range as inline math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'This costs $5-$10 depending on tier.' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$5-$10 depending on tier.');
+  });
+
+  test('does not render comma-separated dollar amounts as inline math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Budget: $50,000-$100,000 this year.' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$50,000-$100,000 this year.');
+  });
+
+  test('does not render per-unit dollar prices spanning prose as inline math', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Tier A is $5/mo and tier B is $10/mo.' }));
+    expect(html).not.toContain('katex');
+    expect(html).toContain('$5/mo and tier B is $10/mo.');
+  });
+
+  test('still renders a leading-digit formula not abutting a later amount', () => {
+    const html = renderToStaticMarkup(createElement(InlineMarkdown, { text: 'Coefficient $2x + 1$ grows.' }));
+    expect(html).toContain('katex');
+    expect(html).toContain('data-math-tex="2x + 1"');
+  });
 });
