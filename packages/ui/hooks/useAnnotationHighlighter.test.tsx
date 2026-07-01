@@ -2,10 +2,17 @@ import { describe, expect, test } from 'bun:test';
 import React, { useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { useAnnotationHighlighter } from './useAnnotationHighlighter';
 import { AnnotationType, type Annotation } from '../types';
 
 const hasDom = typeof document !== 'undefined';
+
+// The hook pulls in @plannotator/web-highlighter, whose UMD bundle reads
+// `window` at module-eval time and throws under the default DOM-less
+// `bun test`. Import it lazily so this file loads cleanly when the DOM tests
+// are skipped (CI); DOM_TESTS=1 supplies a real DOM and the real module.
+const mod = hasDom ? await import('./useAnnotationHighlighter') : null;
+const useAnnotationHighlighter =
+  mod?.useAnnotationHighlighter as typeof import('./useAnnotationHighlighter')['useAnnotationHighlighter'];
 
 function Harness({
   mode,
