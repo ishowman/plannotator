@@ -212,6 +212,44 @@ describe("parseMarkdownToBlocks — display math", () => {
     expect(blocks[1].startLine).toBe(3);
     expect(blocks[1].sourceLineCount).toBe(1);
   });
+
+  // Regression: the closing $$ was only recognized when it was the last thing
+  // on the line, so a trailing char (a period) or trailing words made the line
+  // look like an unterminated opener and swallowed the rest of the document.
+  test("$$ closing with a trailing period does not swallow following content", () => {
+    const md = "$$E = mc^2$$.\n\n## Next\n\nBody.";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks.map((b) => b.type)).toEqual(["math", "paragraph", "heading", "paragraph"]);
+    expect(blocks[0].content).toBe("E = mc^2");
+    expect(blocks[1].content).toBe(".");
+    expect(blocks[2].content).toBe("Next");
+  });
+
+  test("$$ closing with trailing words keeps the trailing text as a paragraph", () => {
+    const md = "$$E = mc^2$$ where E is energy.\n\n## Deploy";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks.map((b) => b.type)).toEqual(["math", "paragraph", "heading"]);
+    expect(blocks[0].content).toBe("E = mc^2");
+    expect(blocks[1].content).toBe("where E is energy.");
+  });
+
+  test("multi-line $$ whose closing line has trailing text does not swallow", () => {
+    const md = "$$\na + b\n= c $$ done\n\nNext.";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks.map((b) => b.type)).toEqual(["math", "paragraph", "paragraph"]);
+    expect(blocks[0].content).toBe("a + b\n= c ");
+    expect(blocks[1].content).toBe("done");
+    expect(blocks[2].content).toBe("Next.");
+  });
+
+  test("\\[ closing with a trailing period does not swallow following content", () => {
+    const md = "\\[a^2 + b^2 = c^2\\].\n\n## Next\n\nBody.";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks.map((b) => b.type)).toEqual(["math", "paragraph", "heading", "paragraph"]);
+    expect(blocks[0].content).toBe("a^2 + b^2 = c^2");
+    expect(blocks[1].content).toBe(".");
+    expect(blocks[2].content).toBe("Next");
+  });
 });
 
 describe("parseMarkdownToBlocks — tables", () => {

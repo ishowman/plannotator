@@ -297,27 +297,25 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
     if (trimmed.startsWith('$$')) {
       flush();
       const mathStartLine = currentLineNum;
-      const firstLineAfterOpening = trimmed.slice(2).trim();
-      const closesOnOpeningLine =
-        firstLineAfterOpening.endsWith('$$') &&
-        (firstLineAfterOpening.length > 2 || trimmed.length >= 4);
+      const afterOpen = trimmed.slice(2);
       const mathLines: string[] = [];
-
-      if (closesOnOpeningLine && firstLineAfterOpening.length > 2) {
-        mathLines.push(firstLineAfterOpening.slice(0, -2).trim());
-      } else if (!closesOnOpeningLine && firstLineAfterOpening.length > 0) {
-        mathLines.push(firstLineAfterOpening);
-      }
-
-      if (!closesOnOpeningLine) {
+      let remainder = '';
+      // Find the closing $$ anywhere on the opening line (not just at its end),
+      // so `$$x$$.` or `$$x$$ trailing` close correctly instead of running on.
+      const inlineClose = afterOpen.indexOf('$$');
+      if (inlineClose !== -1) {
+        const body = afterOpen.slice(0, inlineClose).trim();
+        if (body) mathLines.push(body);
+        remainder = afterOpen.slice(inlineClose + 2).trim();
+      } else {
+        if (afterOpen.trim()) mathLines.push(afterOpen.trim());
         while (i + 1 < lines.length) {
           i++;
-          const nextTrimmed = lines[i].trim();
-          if (nextTrimmed.endsWith('$$')) {
-            const beforeClosing = lines[i].replace(/\s*\$\$\s*$/, '');
-            if (beforeClosing.trim().length > 0) {
-              mathLines.push(beforeClosing);
-            }
+          const closeAt = lines[i].indexOf('$$');
+          if (closeAt !== -1) {
+            const before = lines[i].slice(0, closeAt);
+            if (before.trim()) mathLines.push(before);
+            remainder = lines[i].slice(closeAt + 2).trim();
             break;
           }
           mathLines.push(lines[i]);
@@ -332,6 +330,13 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
         startLine: mathStartLine,
         sourceLineCount: i + contentStartLine - mathStartLine + 1,
       });
+
+      // Trailing text after the closing $$ isn't math — reprocess it as its own
+      // line so it renders normally instead of being swallowed into the block.
+      if (remainder) {
+        lines[i] = remainder;
+        i--;
+      }
       continue;
     }
 
@@ -339,27 +344,23 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
     if (trimmed.startsWith('\\[')) {
       flush();
       const mathStartLine = currentLineNum;
-      const firstLineAfterOpening = trimmed.slice(2).trim();
-      const closesOnOpeningLine =
-        firstLineAfterOpening.endsWith('\\]') &&
-        (firstLineAfterOpening.length > 2 || trimmed.length >= 4);
+      const afterOpen = trimmed.slice(2);
       const mathLines: string[] = [];
-
-      if (closesOnOpeningLine && firstLineAfterOpening.length > 2) {
-        mathLines.push(firstLineAfterOpening.slice(0, -2).trim());
-      } else if (!closesOnOpeningLine && firstLineAfterOpening.length > 0) {
-        mathLines.push(firstLineAfterOpening);
-      }
-
-      if (!closesOnOpeningLine) {
+      let remainder = '';
+      const inlineClose = afterOpen.indexOf('\\]');
+      if (inlineClose !== -1) {
+        const body = afterOpen.slice(0, inlineClose).trim();
+        if (body) mathLines.push(body);
+        remainder = afterOpen.slice(inlineClose + 2).trim();
+      } else {
+        if (afterOpen.trim()) mathLines.push(afterOpen.trim());
         while (i + 1 < lines.length) {
           i++;
-          const nextTrimmed = lines[i].trim();
-          if (nextTrimmed.endsWith('\\]')) {
-            const beforeClosing = lines[i].replace(/\s*\\\]\s*$/, '');
-            if (beforeClosing.trim().length > 0) {
-              mathLines.push(beforeClosing);
-            }
+          const closeAt = lines[i].indexOf('\\]');
+          if (closeAt !== -1) {
+            const before = lines[i].slice(0, closeAt);
+            if (before.trim()) mathLines.push(before);
+            remainder = lines[i].slice(closeAt + 2).trim();
             break;
           }
           mathLines.push(lines[i]);
@@ -374,6 +375,11 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
         startLine: mathStartLine,
         sourceLineCount: i + contentStartLine - mathStartLine + 1,
       });
+
+      if (remainder) {
+        lines[i] = remainder;
+        i--;
+      }
       continue;
     }
 
