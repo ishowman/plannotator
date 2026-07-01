@@ -208,6 +208,11 @@ body {
   line-height: 1;
 }
 
+/* Signal that a rendered formula is a clickable annotation target. */
+.math-annotatable {
+  cursor: pointer;
+}
+
 .math-block {
   max-width: 100%;
 }

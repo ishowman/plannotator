@@ -134,17 +134,21 @@ const selectionHasNonMathContent = (
   root: HTMLElement | null,
 ): boolean => {
   if (!selection || selection.rangeCount === 0 || !root) return false;
-  if (
-    (selection.anchorNode && !closestMathElement(selection.anchorNode, root)) ||
-    (selection.focusNode && !closestMathElement(selection.focusNode, root))
-  ) {
-    return true;
-  }
 
   for (let i = 0; i < selection.rangeCount; i += 1) {
     const range = selection.getRangeAt(i);
     if (!root.contains(range.commonAncestorContainer)) continue;
 
+    // Whole selection sits inside a single formula (both endpoints within the
+    // rendered KaTeX): a pure-math selection, not mixed content.
+    if (closestMathElement(range.commonAncestorContainer, root)) continue;
+
+    // Otherwise clone the selection, drop any whole math elements it covers,
+    // and see if meaningful text is left. Leftover text = genuinely mixed
+    // (prose + formula) and should fall through to the normal text path.
+    // Nothing left = the selection only spans formulas — even when an endpoint
+    // spills into an adjacent text node at offset 0, which the browser does on
+    // nearly every drag-select of an inline formula.
     const fragment = range.cloneContents();
     fragment.querySelectorAll?.('.math-annotatable[data-math-tex]').forEach(element => {
       element.remove();
@@ -261,6 +265,7 @@ export function useAnnotationHighlighter({
   const onSelectAnnotationRef = useRef(onSelectAnnotation);
   const pendingSourceRef = useRef<any>(null);
   const pendingMathTargetsRef = useRef<MathAnnotationTarget[]>([]);
+  const pendingMathElementRef = useRef<HTMLElement | null>(null);
   const justCreatedIdRef = useRef<string | null>(null);
   const lastMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const mouseDownMathRef = useRef<HTMLElement | null>(null);
@@ -277,6 +282,19 @@ export function useAnnotationHighlighter({
   const clearPendingSelection = useCallback(() => {
     pendingSourceRef.current = null;
     pendingMathTargetsRef.current = [];
+    // Strip the pre-submission preview highlight if the annotation was never
+    // finalized (createAnnotationFromMathSource nulls this ref once committed).
+    if (pendingMathElementRef.current) {
+      clearMathAnnotationClass(pendingMathElementRef.current);
+      pendingMathElementRef.current = null;
+    }
+  }, []);
+
+  // Paint a preview highlight on a formula the moment its toolbar/popover opens,
+  // so the target is visible before the user commits the annotation.
+  const showPendingMathPreview = useCallback((source: MathAnnotationSource) => {
+    applyMathAnnotationClass(source.element, 'pending-math', AnnotationType.COMMENT, source.displayMode);
+    pendingMathElementRef.current = source.element;
   }, []);
 
   // Track mouse position for quick label picker
@@ -493,6 +511,9 @@ export function useAnnotationHighlighter({
   ) => {
     const id = annotationId();
     applyMathAnnotationClass(source.element, id, type, source.displayMode);
+    // Committed — hand ownership of the highlight to the annotation so a later
+    // clearPendingSelection() doesn't strip it.
+    pendingMathElementRef.current = null;
 
     const newAnnotation: Annotation = {
       id,
@@ -864,6 +885,7 @@ export function useAnnotationHighlighter({
 
       if (modeRef.current === 'comment') {
         pendingSourceRef.current = source;
+        showPendingMathPreview(source);
         setCommentPopover({
           anchorEl: source.element,
           contextText: source.text.slice(0, 80),
@@ -875,6 +897,7 @@ export function useAnnotationHighlighter({
 
       if (modeRef.current === 'quickLabel') {
         pendingSourceRef.current = source;
+        showPendingMathPreview(source);
         setQuickLabelPicker({
           anchorEl: source.element,
           cursorHint: lastMousePosRef.current,
@@ -884,6 +907,7 @@ export function useAnnotationHighlighter({
       }
 
       pendingSourceRef.current = source;
+      showPendingMathPreview(source);
       setToolbarState({
         element: source.element,
         source,
@@ -1080,12 +1104,12 @@ export function useAnnotationHighlighter({
     setCommentPopover(prev => {
       if (prev?.source && highlighterRef.current && !isMathAnnotationSource(prev.source)) {
         highlighterRef.current.remove(prev.source.id);
-        clearPendingSelection();
       }
       return null;
     });
+    clearPendingSelection();
     window.getSelection()?.removeAllRanges();
-  }, []);
+  }, [clearPendingSelection]);
 
   const handleFloatingQuickLabel = useCallback((label: QuickLabel) => {
     if (!quickLabelPicker?.source) return;
@@ -1120,8 +1144,8 @@ export function useAnnotationHighlighter({
       !isMathAnnotationSource(quickLabelPicker.source)
     ) {
       highlighterRef.current.remove(quickLabelPicker.source.id);
-      clearPendingSelection();
     }
+    clearPendingSelection();
     setQuickLabelPicker(null);
     window.getSelection()?.removeAllRanges();
   }, [clearPendingSelection, quickLabelPicker]);

@@ -178,6 +178,68 @@ describe('useAnnotationHighlighter math annotations', () => {
     host.remove();
   });
 
+  test.skipIf(!hasDom)('drag-selecting an inline formula annotates it even when the selection spills into the next text node', async () => {
+    // Regression: browsers normalize the focus of an inline drag-select to
+    // offset 0 of the following text node. The math handler must still treat
+    // this as a pure-formula selection rather than bailing to web-highlighter.
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const annotations: Annotation[] = [];
+
+    await act(async () => {
+      root.render(<Harness mode="comment" onAdd={(ann) => annotations.push(ann)} />);
+    });
+
+    const math = host.querySelector<HTMLElement>('.math-annotatable');
+    const after = host.querySelector<HTMLElement>('[data-testid="text-after"]');
+    expect(math).toBeTruthy();
+    expect(after).toBeTruthy();
+
+    // Anchor inside the formula, focus spilled to the start of the trailing prose.
+    const range = document.createRange();
+    range.setStart(math!.firstChild!, 0);
+    range.setEnd(after!.firstChild!, 0);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    let defaultPrevented = false;
+    await act(async () => {
+      math!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      defaultPrevented = !math!.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    // Handler claimed the event (did not fall through to web-highlighter)…
+    expect(defaultPrevented).toBe(true);
+
+    // …and painted a preview highlight before the comment is even submitted.
+    expect(math!.classList.contains('annotation-highlight')).toBe(true);
+    expect(math!.classList.contains('comment')).toBe(true);
+
+    // …and offered a comment popover; submitting it styles the whole formula.
+    const submit = host.querySelector<HTMLButtonElement>('[data-testid="submit-comment"]');
+    expect(submit).toBeTruthy();
+    await act(async () => {
+      submit!.click();
+    });
+
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].type).toBe(AnnotationType.COMMENT);
+    expect(annotations[0].originalText).toBe('E = mc^2');
+    expect(math!.dataset.mathAnnotation).toBe('true');
+    expect(math!.classList.contains('annotation-highlight')).toBe(true);
+    expect(math!.classList.contains('comment')).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
+
   test.skipIf(!hasDom)('mixed text and formula mouseup is not swallowed by the math-only handler', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
