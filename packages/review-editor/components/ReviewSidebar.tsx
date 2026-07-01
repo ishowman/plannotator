@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation } from '@plannotator/ui/types';
+import { CodeAnnotation, type CodeAnnotationScope, type EditorAnnotation, type Annotation, type CommentAnnotation } from '@plannotator/ui/types';
 import { CommentMeta } from './CommentMeta';
 import { EditorAnnotationCard } from '@plannotator/ui/components/EditorAnnotationCard';
 import { CommentActions } from './CommentActions';
@@ -35,6 +35,16 @@ interface ReviewSidebarProps {
   width?: number;
   editorAnnotations?: EditorAnnotation[];
   onDeleteEditorAnnotation?: (id: string) => void;
+  // PR description prose annotations (comment-only) — shown in their own group.
+  descriptionAnnotations?: Annotation[];
+  selectedDescriptionAnnotationId?: string | null;
+  onSelectDescriptionAnnotation?: (id: string | null) => void;
+  onDeleteDescriptionAnnotation?: (id: string) => void;
+  // PR comment annotations (notes on a whole comment) — own group.
+  commentAnnotations?: CommentAnnotation[];
+  selectedCommentAnnotationId?: string | null;
+  onSelectCommentAnnotation?: (id: string | null) => void;
+  onDeleteCommentAnnotation?: (id: string) => void;
   prMetadata?: PRMetadata | null;
   // AI props
   aiAvailable?: boolean;
@@ -60,7 +70,6 @@ interface ReviewSidebarProps {
   onAgentKillAll?: () => void;
   externalAnnotations?: Array<{ source?: string }>;
   onOpenJobDetail?: (jobId: string) => void;
-  onOpenPRPanel?: (type: 'summary' | 'comments' | 'checks') => void;
 }
 
 const SuggestionPreview: React.FC<{ code: string; originalCode?: string; language?: string }> = ({ code, originalCode, language }) => {
@@ -123,6 +132,14 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   width,
   editorAnnotations,
   onDeleteEditorAnnotation,
+  descriptionAnnotations,
+  selectedDescriptionAnnotationId,
+  onSelectDescriptionAnnotation,
+  onDeleteDescriptionAnnotation,
+  commentAnnotations,
+  selectedCommentAnnotationId,
+  onSelectCommentAnnotation,
+  onDeleteCommentAnnotation,
   prMetadata,
   aiAvailable = false,
   aiMessages = [],
@@ -146,9 +163,8 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
   onAgentKillAll,
   externalAnnotations,
   onOpenJobDetail,
-  onOpenPRPanel,
 }) => {
-  const totalCount = annotations.length + (editorAnnotations?.length ?? 0);
+  const totalCount = annotations.length + (editorAnnotations?.length ?? 0) + (descriptionAnnotations?.length ?? 0) + (commentAnnotations?.length ?? 0);
   const [copied, setCopied] = useState(false);
 
   const handleQuickCopy = async () => {
@@ -268,6 +284,84 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
     );
   }
 
+  // Prose annotations on the PR description — comment-only, anchored to selected
+  // text (no file/line). Mirrors renderAnnotationCard for visual consistency.
+  // Shared card shell for prose annotations (PR description + PR comment): a
+  // scope label, the quoted source text, the reviewer's note, select + delete.
+  // Thin per-type call sites below map their fields onto it.
+  function renderProseAnnotationCard(opts: {
+    id: string;
+    label: string;
+    quote?: string;
+    quoteClamp?: string;
+    note?: string;
+    author?: string;
+    createdAt: number;
+    source?: string;
+    isSelected: boolean;
+    onSelect: () => void;
+    onDelete: () => void;
+  }) {
+    const { id, label, quote, quoteClamp = 'line-clamp-2', note, author, createdAt, source, isSelected, onSelect, onDelete } = opts;
+    return (
+      <div
+        key={id}
+        onClick={onSelect}
+        className={`group relative p-2.5 rounded border cursor-pointer transition-colors duration-150 ${
+          isSelected ? 'bg-primary/5 border-primary/30' : 'border-transparent hover:bg-muted/30'
+        }`}
+      >
+        <CommentMeta
+          leading={
+            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+              {label}
+            </span>
+          }
+          source={source}
+          author={author}
+          createdAt={createdAt}
+        />
+        {quote && (
+          <div className={`mt-1 mb-1 border-l-2 border-border/40 pl-1.5 text-[11px] italic text-muted-foreground/80 ${quoteClamp}`}>
+            {quote}
+          </div>
+        )}
+        {note && (
+          <div className="text-xs text-foreground/80 line-clamp-2 review-comment-markdown">
+            {renderInlineMarkdown(note)}
+          </div>
+        )}
+        <CommentActions copyText={note || undefined} onDelete={onDelete} />
+      </div>
+    );
+  }
+
+  const renderDescriptionAnnotationCard = (annotation: Annotation) => renderProseAnnotationCard({
+    id: annotation.id,
+    label: 'PR description',
+    quote: annotation.originalText,
+    quoteClamp: 'line-clamp-1',
+    note: annotation.text,
+    author: annotation.author,
+    createdAt: annotation.createdA,
+    source: annotation.source,
+    isSelected: selectedDescriptionAnnotationId === annotation.id,
+    onSelect: () => onSelectDescriptionAnnotation?.(annotation.id),
+    onDelete: () => onDeleteDescriptionAnnotation?.(annotation.id),
+  });
+
+  const renderCommentAnnotationCard = (annotation: CommentAnnotation) => renderProseAnnotationCard({
+    id: annotation.id,
+    label: 'PR comment',
+    quote: annotation.commentBody,
+    note: annotation.text,
+    author: annotation.commentAuthor,
+    createdAt: annotation.createdAt,
+    isSelected: selectedCommentAnnotationId === annotation.id,
+    onSelect: () => onSelectCommentAnnotation?.(annotation.id),
+    onDelete: () => onDeleteCommentAnnotation?.(annotation.id),
+  });
+
   return (
     <aside className="border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0" style={{ width: width ?? 288 }}>
         {/* Header */}
@@ -380,6 +474,38 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
                       onDelete={() => onDeleteEditorAnnotation?.(ann.id)}
                     />
                   ))}
+                </>
+              )}
+
+              {/* PR description annotations */}
+              {descriptionAnnotations && descriptionAnnotations.length > 0 && (
+                <>
+                  {(annotations.length > 0 || (editorAnnotations?.length ?? 0) > 0) && (
+                    <div className="flex items-center gap-2 pt-2 pb-1">
+                      <div className="flex-1 border-t border-border/30" />
+                      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60">PR description</span>
+                      <div className="flex-1 border-t border-border/30" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {descriptionAnnotations.map(renderDescriptionAnnotationCard)}
+                  </div>
+                </>
+              )}
+
+              {/* PR comment annotations */}
+              {commentAnnotations && commentAnnotations.length > 0 && (
+                <>
+                  {(annotations.length > 0 || (editorAnnotations?.length ?? 0) > 0 || (descriptionAnnotations?.length ?? 0) > 0) && (
+                    <div className="flex items-center gap-2 pt-2 pb-1">
+                      <div className="flex-1 border-t border-border/30" />
+                      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60">PR comments</span>
+                      <div className="flex-1 border-t border-border/30" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {commentAnnotations.map(renderCommentAnnotationCard)}
+                  </div>
                 </>
               )}
 

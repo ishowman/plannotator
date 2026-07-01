@@ -1,6 +1,7 @@
-import type { CodeAnnotation, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
+import type { CodeAnnotation, ConventionalLabel, ConventionalDecoration, CommentAnnotation, Annotation } from '@plannotator/ui/types';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import { getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
+import { exportAnnotations, parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 
 /**
  * Format a conventional comment prefix per the Conventional Comments spec:
@@ -248,4 +249,49 @@ export function exportReviewFeedback(
 
   output += generalSection;
   return output;
+}
+
+/**
+ * The prose-annotation feedback block (PR description notes + PR comment notes),
+ * joined. Shared by the agent feedback (feedbackMarkdown) and the GitHub review
+ * body seed, so the two never drift. Returns '' when there are no prose notes.
+ */
+export function buildProseFeedback(
+  descriptionAnnotations: Annotation[],
+  commentAnnotations: CommentAnnotation[],
+  descriptionBody: string | undefined,
+): string {
+  const parts: string[] = [];
+  if (descriptionAnnotations.length > 0 && descriptionBody) {
+    parts.push(exportAnnotations(
+      parseMarkdownToBlocks(descriptionBody),
+      descriptionAnnotations,
+      [],
+      'PR Description Feedback',
+      'PR description',
+    ));
+  }
+  if (commentAnnotations.length > 0) {
+    parts.push(exportCommentAnnotations(commentAnnotations));
+  }
+  return parts.join('\n\n');
+}
+
+/**
+ * Format feedback from PR comment annotations. Unlike code (the agent can read
+ * the repo) a PR comment is invisible to the agent, so the full comment body is
+ * quoted inline alongside the reviewer's note.
+ */
+export function exportCommentAnnotations(annotations: CommentAnnotation[]): string {
+  if (annotations.length === 0) return '';
+  let output = '# PR Comment Feedback\n\n';
+  for (const ann of annotations) {
+    output += `## Comment by @${ann.commentAuthor}\n\n`;
+    if (ann.commentBody.trim()) {
+      const quoted = ann.commentBody.trim().split('\n').map(line => `> ${line}`).join('\n');
+      output += `${quoted}\n\n`;
+    }
+    output += `${ann.text}\n\n`;
+  }
+  return output.trimEnd() + '\n';
 }

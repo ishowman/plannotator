@@ -6,7 +6,6 @@ import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
 import { Settings } from '@plannotator/ui/components/Settings';
 import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
 import { AgentReviewActions } from './components/AgentReviewActions';
-import { DiffOptionsPopover } from './components/DiffOptionsPopover';
 import { useUpdateCheck } from '@plannotator/ui/hooks/useUpdateCheck';
 import { storage } from '@plannotator/ui/utils/storage';
 import { CompletionOverlay } from '@plannotator/ui/components/CompletionOverlay';
@@ -27,7 +26,8 @@ import {
   markLookAndFeelAnnouncementSeen,
   needsLookAndFeelAnnouncement,
 } from '@plannotator/ui/utils/lookAndFeelAnnouncement';
-import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
+import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, TokenAnnotationMeta, ConventionalLabel, ConventionalDecoration, Annotation, CommentAnnotation } from '@plannotator/ui/types';
+import type { CommentAskAIHandler } from '@plannotator/ui/components/CommentPopover';
 import { useResizablePanel } from '@plannotator/ui/hooks/useResizablePanel';
 import { useCodeAnnotationDraft } from '@plannotator/ui/hooks/useCodeAnnotationDraft';
 import { useGitAdd } from './hooks/useGitAdd';
@@ -60,13 +60,14 @@ import { useDiffFreshness } from './hooks/useDiffFreshness';
 import { usePRSession, type PRSessionUpdate } from './hooks/usePRSession';
 import { useAnnotationFactory } from './hooks/useAnnotationFactory';
 import { DEMO_DIFF } from './demoData';
-import { exportReviewFeedback } from './utils/exportFeedback';
+import { exportReviewFeedback, buildProseFeedback } from './utils/exportFeedback';
 import { parseDiffToFiles } from './utils/diffParser';
 import { ReviewSubmissionDialog, buildReviewSubmission, type ReviewSubmission, type SubmissionTarget } from './components/ReviewSubmissionDialog';
 import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext';
 import { JobLogsProvider } from './dock/JobLogsContext';
 import { reviewPanelComponents } from './dock/reviewPanelComponents';
 import { ReviewDockTabRenderer } from './dock/ReviewDockTabRenderer';
+import { ReviewDockRightActions } from './dock/ReviewDockRightActions';
 import { usePRContext } from './hooks/usePRContext';
 import {
   REVIEW_PANEL_TYPES,
@@ -74,9 +75,7 @@ import {
   makeReviewAgentJobPanelId,
   getReviewDiffPanelFilePath,
   isReviewDiffPanelId,
-  REVIEW_PR_SUMMARY_PANEL_ID,
-  REVIEW_PR_COMMENTS_PANEL_ID,
-  REVIEW_PR_CHECKS_PANEL_ID,
+  REVIEW_PR_OVERVIEW_PANEL_ID,
   REVIEW_SEMANTIC_DIFF_PANEL_ID,
   REVIEW_ALL_FILES_PANEL_ID,
   REVIEW_CODE_NAV_PANEL_ID,
@@ -120,6 +119,15 @@ const ReviewApp: React.FC = () => {
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const [annotations, setAnnotations] = useState<CodeAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  // PR description prose annotations (comment-only; separate from the diff store).
+  const [descriptionAnnotations, setDescriptionAnnotations] = useState<Annotation[]>([]);
+  const [selectedDescriptionAnnotationId, setSelectedDescriptionAnnotationId] = useState<string | null>(null);
+  // PR comment annotations (notes attached to a whole comment/review/thread).
+  const [commentAnnotations, setCommentAnnotations] = useState<CommentAnnotation[]>([]);
+  const [selectedCommentAnnotationId, setSelectedCommentAnnotationId] = useState<string | null>(null);
+  // Sidebar → source-comment navigation signal; token bumps per click so
+  // re-selecting the same comment re-scrolls. Consumed by PRCommentsTab.
+  const [commentScrollTarget, setCommentScrollTarget] = useState<{ commentId: string; token: number } | null>(null);
   // Sidebar-initiated "scroll to this comment" signal. The token bumps on every
   // sidebar click so re-selecting the same comment re-navigates. Selecting a
   // comment in the diff sets selectedAnnotationId but NOT this — so it never
@@ -132,6 +140,7 @@ const ReviewApp: React.FC = () => {
   const isAllFilesActiveRef = useRef(isAllFilesActive);
   isAllFilesActiveRef.current = isAllFilesActive;
   const [isSemanticDiffActive, setIsSemanticDiffActive] = useState(false);
+  const [isPROverviewActive, setIsPROverviewActive] = useState(false);
   const [semanticDiffAvailable, setSemanticDiffAvailable] = useState(false);
   const [isDiffPanelActive, setIsDiffPanelActive] = useState(false);
   const [allFilesVisibleFile, setAllFilesVisibleFile] = useState<string | null>(null);
@@ -172,7 +181,7 @@ const ReviewApp: React.FC = () => {
     document.documentElement.style.setProperty('--diffs-tab-size', String(diffTabSize));
   }, [diffFontFamily, diffFontSize, diffTabSize]);
 
-  const reviewSidebar = useSidebar<ReviewSidebarTab>(true, 'annotations');
+  const reviewSidebar = useSidebar<ReviewSidebarTab>(false, 'annotations');
   const [isFileTreeOpen, setIsFileTreeOpen] = useState(true);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [copyRawDiffStatus, setCopyRawDiffStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -422,6 +431,8 @@ const ReviewApp: React.FC = () => {
   // Auto-save code annotation drafts
   const { draftBanner, restoreDraft, getDraftGeneration, dismissDraft } = useCodeAnnotationDraft({
     annotations: allAnnotations,
+    descriptionAnnotations,
+    commentAnnotations,
     viewedFiles,
     isApiMode: !!origin,
     submitted: !!submitted,
@@ -430,6 +441,8 @@ const ReviewApp: React.FC = () => {
   const handleRestoreDraft = useCallback(() => {
     const restored = restoreDraft();
     if (restored.annotations.length > 0) setAnnotations(restored.annotations);
+    if (restored.descriptionAnnotations.length > 0) setDescriptionAnnotations(restored.descriptionAnnotations);
+    if (restored.commentAnnotations.length > 0) setCommentAnnotations(restored.commentAnnotations);
     if (restored.viewedFiles.length > 0) setViewedFiles(new Set(restored.viewedFiles));
   }, [restoreDraft]);
 
@@ -653,11 +666,13 @@ const ReviewApp: React.FC = () => {
       if (!panel) {
         setIsAllFilesActive(false);
         setIsSemanticDiffActive(false);
+        setIsPROverviewActive(false);
         setIsDiffPanelActive(false);
         return;
       }
       setIsAllFilesActive(panel.id === REVIEW_ALL_FILES_PANEL_ID);
       setIsSemanticDiffActive(panel.id === REVIEW_SEMANTIC_DIFF_PANEL_ID);
+      setIsPROverviewActive(panel.id === REVIEW_PR_OVERVIEW_PANEL_ID);
       setIsDiffPanelActive(isReviewDiffPanelId(panel.id));
       if (!isReviewDiffPanelId(panel.id)) return;
       const filePath = getReviewDiffPanelFilePath(panel.params);
@@ -668,29 +683,12 @@ const ReviewApp: React.FC = () => {
       }
     });
 
-    // Hide Dockview chrome only for the dedicated single diff tab.
-    // Any lone non-diff panel still needs a visible header so it can be
-    // dragged, closed, and used as a way back out of the dock.
-    const updateHeaders = () => {
-      const lonePanel =
-        event.api.totalPanels === 1 && event.api.groups.length === 1
-          ? event.api.groups[0]?.panels[0]
-          : undefined;
-      const hideHeaders =
-        lonePanel?.id === REVIEW_DIFF_PANEL_ID ||
-        lonePanel?.id === REVIEW_SEMANTIC_DIFF_PANEL_ID ||
-        lonePanel?.id === REVIEW_ALL_FILES_PANEL_ID;
-      for (const group of event.api.groups) {
-        group.header.hidden = hideHeaders;
-      }
-    };
-    event.api.onDidAddPanel(updateHeaders);
-    event.api.onDidRemovePanel(updateHeaders);
-    event.api.onDidAddGroup(updateHeaders);
-    event.api.onDidRemoveGroup(updateHeaders);
-    event.api.onDidMovePanel(updateHeaders);
-    event.api.onDidLayoutChange(updateHeaders);
-    updateHeaders();
+    // Note: we intentionally no longer hide the tab header for a lone diff /
+    // all-files / semantic panel. The Split/Unified toggle lives in the tab
+    // strip's right-actions slot (ReviewDockRightActions), so the header must
+    // stay visible in single-panel diff views — otherwise the toggle would
+    // vanish exactly when it's most needed. The trade is a single tab showing
+    // in those views, which is acceptable.
   }, []);
 
   // Open agent job detail as center dock panel
@@ -745,24 +743,19 @@ const ReviewApp: React.FC = () => {
     }
   }, [agentJobs.jobs]);
 
-  // Open PR panel as center dock panel
-  const handleOpenPRPanel = useCallback((type: 'summary' | 'comments' | 'checks') => {
+  // Open the combined PR overview (summary + checks + comments) as a center dock panel
+  const openPROverviewPanel = useCallback(() => {
     const api = dockApi;
     if (!api) return;
-    const config = {
-      summary: { id: REVIEW_PR_SUMMARY_PANEL_ID, component: REVIEW_PANEL_TYPES.PR_SUMMARY, title: 'PR Summary' },
-      comments: { id: REVIEW_PR_COMMENTS_PANEL_ID, component: REVIEW_PANEL_TYPES.PR_COMMENTS, title: 'PR Comments' },
-      checks: { id: REVIEW_PR_CHECKS_PANEL_ID, component: REVIEW_PANEL_TYPES.PR_CHECKS, title: 'PR Checks' },
-    }[type];
-    const existing = api.getPanel(config.id);
+    const existing = api.getPanel(REVIEW_PR_OVERVIEW_PANEL_ID);
     if (existing) {
       existing.api.setActive();
       return;
     }
     api.addPanel({
-      id: config.id,
-      component: config.component,
-      title: config.title,
+      id: REVIEW_PR_OVERVIEW_PANEL_ID,
+      component: REVIEW_PANEL_TYPES.PR_OVERVIEW,
+      title: 'PR Overview',
     });
   }, [dockApi]);
 
@@ -834,8 +827,12 @@ const ReviewApp: React.FC = () => {
   useEffect(() => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
     needsInitialDiffPanel.current = false;
-    openAllFilesPanel();
-  }, [dockApi, files, openAllFilesPanel]);
+    // PR reviews land on the combined PR Overview by default; other reviews
+    // open the all-files diff. (prMetadata is set in the same /api/diff handler
+    // tick as files, so it's already populated here for PRs.)
+    if (prMetadata) openPROverviewPanel();
+    else openAllFilesPanel();
+  }, [dockApi, files, openAllFilesPanel, openPROverviewPanel, prMetadata]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -1005,10 +1002,6 @@ const ReviewApp: React.FC = () => {
       setShowDiffTypeSetup(true);
     }
   }, [diffTypeSetupPending]);
-
-  const handleDiffStyleChange = useCallback((style: 'split' | 'unified') => {
-    configStore.set('diffStyle', style);
-  }, []);
 
   // Handle line selection from diff viewer
   const handleLineSelection = useCallback((range: SelectedLineRange | null) => {
@@ -1518,6 +1511,70 @@ const ReviewApp: React.FC = () => {
     setSelectedAnnotationId(prev => (!id || prev === id ? null : id));
   }, []);
 
+  // --- PR description annotations (comment-only prose store) ---
+  // The web-highlighter marks live in AnnotatableDescription; App owns only the
+  // data. The wrapper reconciles marks (apply new / remove deleted) off this store.
+  const handleAddDescriptionAnnotation = useCallback((ann: Annotation) => {
+    setDescriptionAnnotations(prev => [...prev, ann]);
+    setSelectedDescriptionAnnotationId(ann.id);
+  }, []);
+
+  const handleSelectDescriptionAnnotation = useCallback((id: string | null) => {
+    setSelectedDescriptionAnnotationId(prev => (!id || prev === id ? null : id));
+  }, []);
+
+  const handleDeleteDescriptionAnnotation = useCallback((id: string) => {
+    setDescriptionAnnotations(prev => prev.filter(a => a.id !== id));
+    setSelectedDescriptionAnnotationId(prev => (prev === id ? null : prev));
+  }, []);
+
+  // Ask AI about a description selection — file-less scope ask (same mechanism
+  // the HTML viewer uses). The popover passes the label + selected text.
+  const handleAskAIForDescription = useCallback<CommentAskAIHandler>((question, context) => {
+    askAI({
+      prompt: question,
+      scope: { kind: 'selection', label: context.label ?? 'PR description', text: context.text },
+    });
+  }, [askAI]);
+
+  // --- PR comment annotations (button-driven notes attached to a whole comment) ---
+  const handleAddCommentAnnotation = useCallback((commentId: string, commentAuthor: string, commentBody: string, text: string) => {
+    const ann: CommentAnnotation = {
+      id: crypto.randomUUID(),
+      commentId,
+      commentAuthor,
+      commentBody,
+      text,
+      createdAt: Date.now(),
+    };
+    setCommentAnnotations(prev => [...prev, ann]);
+    setSelectedCommentAnnotationId(ann.id);
+  }, []);
+
+  const handleSelectCommentAnnotation = useCallback((id: string | null) => {
+    setSelectedCommentAnnotationId(prev => (!id || prev === id ? null : id));
+    if (!id) return;
+    // Reveal the source comment: open the PR Overview panel and signal
+    // PRCommentsTab to select + scroll to it.
+    const ann = commentAnnotations.find(a => a.id === id);
+    if (ann) {
+      openPROverviewPanel();
+      setCommentScrollTarget(prev => ({ commentId: ann.commentId, token: (prev?.token ?? 0) + 1 }));
+    }
+  }, [commentAnnotations, openPROverviewPanel]);
+
+  const handleDeleteCommentAnnotation = useCallback((id: string) => {
+    setCommentAnnotations(prev => prev.filter(a => a.id !== id));
+    setSelectedCommentAnnotationId(prev => (prev === id ? null : prev));
+  }, []);
+
+  const handleAskAIForComment = useCallback<CommentAskAIHandler>((question, context) => {
+    askAI({
+      prompt: question,
+      scope: { kind: 'selection', label: context.label ?? 'PR comment', text: context.text },
+    });
+  }, [askAI]);
+
   // Sidebar navigation: select AND scroll-to the comment (DiffsHub "set +
   // scroll"). The token bump re-fires the panels' scroll effect even when the
   // same comment is clicked twice; in single-file mode it switches to the
@@ -1617,6 +1674,19 @@ const ReviewApp: React.FC = () => {
     onSelectAnnotation: handleSelectAnnotation,
     onNavigateToAnnotation: handleNavigateToAnnotation,
     onDeleteAnnotation: handleDeleteAnnotation,
+    descriptionAnnotations,
+    selectedDescriptionAnnotationId,
+    onAddDescriptionAnnotation: handleAddDescriptionAnnotation,
+    onSelectDescriptionAnnotation: handleSelectDescriptionAnnotation,
+    onDeleteDescriptionAnnotation: handleDeleteDescriptionAnnotation,
+    onAskAIForDescription: handleAskAIForDescription,
+    commentAnnotations,
+    selectedCommentAnnotationId,
+    onAddCommentAnnotation: handleAddCommentAnnotation,
+    onSelectCommentAnnotation: handleSelectCommentAnnotation,
+    onDeleteCommentAnnotation: handleDeleteCommentAnnotation,
+    onAskAIForComment: handleAskAIForComment,
+    commentScrollTarget,
     viewedFiles,
     onToggleViewed: handleToggleViewed,
     stagedFiles,
@@ -1666,6 +1736,10 @@ const ReviewApp: React.FC = () => {
     diffLineDiffType, diffShowLineNumbers, diffShowBackground,
     diffExpandUnchanged, diffFontFamily, diffFontSize, activeDiffBase, committedBase, feedbackDiffContext, prReviewScopeLabel, prDiffScope, agentCwd,
     allAnnotations, externalAnnotations,
+    descriptionAnnotations, selectedDescriptionAnnotationId, handleAddDescriptionAnnotation,
+    handleSelectDescriptionAnnotation, handleDeleteDescriptionAnnotation, handleAskAIForDescription,
+    commentAnnotations, selectedCommentAnnotationId, handleAddCommentAnnotation,
+    handleSelectCommentAnnotation, handleDeleteCommentAnnotation, handleAskAIForComment, commentScrollTarget,
     selectedAnnotationId, scrollTargetAnnotation, pendingSelection, handleLineSelection,
     handleAddAnnotation, handleAddFileComment, handleAddFileCommentForFile, handleEditAnnotation,
     handleSelectAnnotation, handleNavigateToAnnotation, handleDeleteAnnotation, viewedFiles,
@@ -1698,15 +1772,37 @@ const ReviewApp: React.FC = () => {
     }
   }, [diffData]);
 
-  // Copy feedback markdown to clipboard
+  const feedbackMarkdown = useMemo(() => {
+    // Only include the code-review section when there ARE code annotations —
+    // otherwise exportReviewFeedback([]) prepends "No feedback provided." ahead
+    // of the description/comment notes, which contradicts them.
+    const parts: string[] = [];
+    if (allAnnotations.length > 0) {
+      parts.push(exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel));
+    }
+    if (editorAnnotations.length > 0) {
+      parts.push(exportEditorAnnotations(editorAnnotations).trim());
+    }
+    const prose = buildProseFeedback(descriptionAnnotations, commentAnnotations, prContext?.body);
+    if (prose) parts.push(prose);
+    // Fall back to the standard "no feedback" message only when there's nothing.
+    return parts.length > 0
+      ? parts.join('\n\n')
+      : exportReviewFeedback([], prMetadata, feedbackDiffContext, prReviewScopeLabel);
+  }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations, descriptionAnnotations, prContext?.body, commentAnnotations]);
+
+  const totalAnnotationCount = allAnnotations.length + editorAnnotations.length + descriptionAnnotations.length + commentAnnotations.length;
+
+  // Copy the same full feedback the agent gets (code + editor + PR description +
+  // PR comment notes), not just code annotations. Defined after feedbackMarkdown
+  // / totalAnnotationCount so it can depend on them.
   const handleCopyFeedback = useCallback(async () => {
-    if (allAnnotations.length === 0) {
+    if (totalAnnotationCount === 0) {
       setShowNoAnnotationsDialog(true);
       return;
     }
     try {
-      const feedback = exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel);
-      await navigator.clipboard.writeText(feedback);
+      await navigator.clipboard.writeText(feedbackMarkdown);
       setCopyFeedback('Feedback copied!');
       setTimeout(() => setCopyFeedback(null), 2000);
     } catch (err) {
@@ -1714,17 +1810,7 @@ const ReviewApp: React.FC = () => {
       setCopyFeedback('Failed to copy');
       setTimeout(() => setCopyFeedback(null), 2000);
     }
-  }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel]);
-
-  const feedbackMarkdown = useMemo(() => {
-    let output = exportReviewFeedback(allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel);
-    if (editorAnnotations.length > 0) {
-      output += exportEditorAnnotations(editorAnnotations);
-    }
-    return output;
-  }, [allAnnotations, prMetadata, feedbackDiffContext, prReviewScopeLabel, editorAnnotations]);
-
-  const totalAnnotationCount = allAnnotations.length + editorAnnotations.length;
+  }, [totalAnnotationCount, feedbackMarkdown]);
 
   // Send feedback to OpenCode via API
   const handleSendFeedback = useCallback(async () => {
@@ -1909,9 +1995,13 @@ const ReviewApp: React.FC = () => {
       repo: getDisplayRepo(prMetadata),
     } : undefined;
     const plan = buildReviewSubmission(allAnnotations, editorAnnotations, prMetadata?.url, diffPaths, prMeta);
-    setPlatformGeneralComment('');
+    // PR description/comment notes aren't line-anchored, so they can't post as
+    // inline review comments — seed them into the review body instead (quoted),
+    // where the user can edit before submitting. Also means a review with only
+    // prose notes still has something to post.
+    setPlatformGeneralComment(buildProseFeedback(descriptionAnnotations, commentAnnotations, prContext?.body));
     setPlatformCommentDialog({ action, plan });
-  }, [allAnnotations, editorAnnotations, files, prMetadata]);
+  }, [allAnnotations, editorAnnotations, files, prMetadata, descriptionAnnotations, commentAnnotations, prContext?.body]);
 
   // Double-tap Option/Alt to toggle review destination (PR mode only)
   useEffect(() => {
@@ -2064,17 +2154,6 @@ const ReviewApp: React.FC = () => {
                   onSelectScope={handlePRDiffScopeSelect}
                   onNavigatePR={handlePRSwitch}
                 />
-                <div className="hidden md:flex items-center gap-0.5 ml-1">
-                  <button onClick={() => handleOpenPRPanel('summary')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Summary">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  </button>
-                  <button onClick={() => handleOpenPRPanel('comments')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Comments">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                  </button>
-                  <button onClick={() => handleOpenPRPanel('checks')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Checks">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </button>
-                </div>
               </div>
             ) : repoInfo ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
@@ -2100,34 +2179,8 @@ const ReviewApp: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
-            {/* Diff-display controls: Split/Unified toggle + settings cog in
-                one pill. The cog is an action (not a toggle segment), set off
-                by a divider so the grouping reads clearly. */}
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-              <button
-                onClick={() => handleDiffStyleChange('split')}
-                className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                  diffStyle === 'split'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Split
-              </button>
-              <button
-                onClick={() => handleDiffStyleChange('unified')}
-                className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                  diffStyle === 'unified'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Unified
-              </button>
-              <div className="w-px h-4 bg-border/60 mx-0.5" />
-              <DiffOptionsPopover />
-            </div>
-
+            {/* Split/Unified toggle + diff options moved to the dock tab strip
+                (rightHeaderActionsComponent → ReviewDockRightActions). */}
             {origin ? (
               <>
                 {/* Destination dropdown (PR mode only) */}
@@ -2301,16 +2354,22 @@ const ReviewApp: React.FC = () => {
                       disabled={isSendingFeedback || isApproving || isExiting || isPlatformActioning}
                       isLoading={isExiting}
                     />
-                    <FeedbackButton
-                      onClick={() => openPlatformDialog('comment')}
-                      disabled={isSendingFeedback || isApproving || isPlatformActioning}
-                      isLoading={isSendingFeedback || isPlatformActioning}
-                      label="Post Comments"
-                      shortLabel="Post"
-                      loadingLabel="Posting..."
-                      shortLoadingLabel="Posting..."
-                      title="Post review to platform"
-                    />
+                    {/* Progressive disclosure: only show Post Comments once there
+                        are annotations to post — mirrors agent mode hiding Send
+                        Feedback when empty. With no annotations the keyboard
+                        shortcut routes to Approve, so this hides cleanly. */}
+                    {totalAnnotationCount > 0 && (
+                      <FeedbackButton
+                        onClick={() => openPlatformDialog('comment')}
+                        disabled={isSendingFeedback || isApproving || isPlatformActioning}
+                        isLoading={isSendingFeedback || isPlatformActioning}
+                        label="Post Comments"
+                        shortLabel="Post"
+                        loadingLabel="Posting..."
+                        shortLoadingLabel="Posting..."
+                        title="Post review to platform"
+                      />
+                    )}
                     <div className="relative group/approve">
                       <ApproveButton
                         onClick={() => {
@@ -2444,6 +2503,10 @@ const ReviewApp: React.FC = () => {
               <FileTree
                 files={files}
                 activeFileIndex={activeFileIndex}
+                onSelectPROverview={openPROverviewPanel}
+                isPROverviewActive={isPROverviewActive}
+                prOverviewNumber={prMetadata ? mrNumberLabel : undefined}
+                prOverviewTitle={prMetadata?.title}
                 onSelectSemanticDiff={() => openSemanticDiffPanel()}
                 isSemanticDiffActive={isSemanticDiffActive}
                 semanticDiffAvailable={semanticDiffAvailable}
@@ -2520,6 +2583,7 @@ const ReviewApp: React.FC = () => {
                 className={`h-full ${resolvedMode === 'light' ? 'dockview-theme-light' : 'dockview-theme-dark'}`}
                 components={reviewPanelComponents}
                 defaultTabComponent={ReviewDockTabRenderer}
+                rightHeaderActionsComponent={ReviewDockRightActions}
                 onReady={handleDockReady}
                 disableFloatingGroups
               />
@@ -2595,6 +2659,14 @@ const ReviewApp: React.FC = () => {
                 width={panelResize.width}
                 editorAnnotations={editorAnnotations}
                 onDeleteEditorAnnotation={deleteEditorAnnotation}
+                descriptionAnnotations={descriptionAnnotations}
+                selectedDescriptionAnnotationId={selectedDescriptionAnnotationId}
+                onSelectDescriptionAnnotation={handleSelectDescriptionAnnotation}
+                onDeleteDescriptionAnnotation={handleDeleteDescriptionAnnotation}
+                commentAnnotations={commentAnnotations}
+                selectedCommentAnnotationId={selectedCommentAnnotationId}
+                onSelectCommentAnnotation={handleSelectCommentAnnotation}
+                onDeleteCommentAnnotation={handleDeleteCommentAnnotation}
                 prMetadata={prMetadata}
                 aiAvailable={aiAvailable}
                 aiMessages={aiMessages}
@@ -2618,7 +2690,6 @@ const ReviewApp: React.FC = () => {
                 onAgentKillAll={agentJobs.killAll}
                 externalAnnotations={externalAnnotations}
                 onOpenJobDetail={handleOpenJobDetail}
-                onOpenPRPanel={handleOpenPRPanel}
               />
             </div>
           )}

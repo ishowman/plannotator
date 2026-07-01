@@ -89,6 +89,14 @@ export const HTML_BLOCK_TAGS: ReadonlySet<string> = new Set([
   'blockquote', 'pre',
   'table', 'thead', 'tbody', 'tr', 'td', 'th',
   'ul', 'ol', 'li', 'p',
+  // Media: GitHub embeds screenshots/videos as raw HTML on their own line.
+  'img', 'video', 'picture',
+]);
+
+/** Void elements — no closing tag, so the block is a single line (don't scan
+ *  ahead for a `</tag>` that will never come). */
+const VOID_HTML_TAGS: ReadonlySet<string> = new Set([
+  'img', 'br', 'hr', 'source', 'input', 'wbr', 'area', 'col', 'embed',
 ]);
 
 const HTML_BLOCK_OPEN_RE = /^<\/?([a-zA-Z][a-zA-Z0-9]*)(?:\s|>|\/|$)/;
@@ -358,6 +366,8 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
           i++;
           htmlLines.push(lines[i]);
         }
+      } else if (VOID_HTML_TAGS.has(tagName)) {
+        // Void element (e.g. <img />): no closing tag — the block is this line.
       } else {
         const openRe = new RegExp(`<${tagName}(?:\\s|>|/|$)`, 'gi');
         const closeRe = new RegExp(`</${tagName}\\s*>`, 'gi');
@@ -455,6 +465,32 @@ export const computeListIndices = (blocks: Block[]): (number | null)[] => {
     return counters[lvl];
   });
 };
+
+/** A run of blocks to render: a single block, or consecutive list items grouped
+ *  together so list numbering/indent can be computed across the run. */
+export type RenderGroup =
+  | { type: 'single'; block: Block }
+  | { type: 'list-group'; blocks: Block[]; key: string };
+
+/** Groups consecutive list-item blocks so a list renders as one unit. */
+export function groupBlocks(blocks: Block[]): RenderGroup[] {
+  const groups: RenderGroup[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    if (blocks[i].type === 'list-item') {
+      const listBlocks: Block[] = [];
+      while (i < blocks.length && blocks[i].type === 'list-item') {
+        listBlocks.push(blocks[i]);
+        i++;
+      }
+      groups.push({ type: 'list-group', blocks: listBlocks, key: `list-${listBlocks[0].id}` });
+    } else {
+      groups.push({ type: 'single', block: blocks[i] });
+      i++;
+    }
+  }
+  return groups;
+}
 
 /** Wrap feedback output with the deny preamble for pasting into agent sessions */
 export const wrapFeedbackForAgent = (feedback: string): string =>

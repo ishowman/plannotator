@@ -36,9 +36,9 @@
   --dv-group-view-background-color: var(--background);
   --dv-tabs-and-actions-container-background-color: var(--muted);
   --dv-activegroup-visiblepanel-tab-background-color: var(--background);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--muted);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--background);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--muted);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
   --dv-tab-divider-color: var(--border);
   --dv-activegroup-visiblepanel-tab-color: var(--foreground);
   --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
@@ -106,6 +106,24 @@
   opacity: 1;
   background: var(--muted);
   color: var(--foreground);
+}
+
+/* Chrome-style dock tabs — rounded top corners with the tabs inset slightly
+   into the muted strip. Inactive tabs are transparent (blend into the strip,
+   via the --dv-* vars above); the active tab takes the panel background so it
+   reads as connected to the content below. This rule handles shape + spacing +
+   hover only; the per-state background colors come from the bridge vars. */
+.dv-dockview .dv-tabs-and-actions-container {
+  padding: 5px 6px 0;
+}
+
+.dv-dockview .dv-tab {
+  border-radius: 8px 8px 0 0;
+  margin-right: 2px;
+}
+
+.dv-dockview .dv-tab.dv-inactive-tab:hover {
+  background-color: color-mix(in oklch, var(--foreground) 6%, transparent) !important;
 }
 
 /* @pierre/diffs theme integration — pass plannotator theme colors into shadow DOM */
@@ -1496,4 +1514,104 @@ diffs-container {
 .code-nav-peek code,
 .code-nav-peek .hljs {
   background: transparent !important;
+}
+
+/* =====================================================
+   Scroll-fade
+   Soft mask fade on the top/bottom edges of a scroll container so
+   content dissolves into the surface instead of hard-cutting at the
+   edge. Applied directly to the scrolling element (OverlayScrollArea
+   renders the scroll node), e.g. the PR Overview panel regions.
+
+   Scroll-aware where supported (top crisp at the start, bottom crisp
+   at the end, both faded mid-scroll); falls back to a static both-edge
+   fade otherwise. The mask is painted on the viewport box, so it stays
+   pinned to the edges while content scrolls underneath.
+   ===================================================== */
+@property --sf-top {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --sf-bottom {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.scroll-fade {
+  --sf-size: min(2.5rem, 12%);
+  /* Fallback (no scroll-driven animations): static fade on both edges. */
+  --sf-top: var(--sf-size);
+  --sf-bottom: var(--sf-size);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--sf-top), #000 calc(100% - var(--sf-bottom)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--sf-top), #000 calc(100% - var(--sf-bottom)), transparent 100%);
+}
+
+@supports (animation-timeline: scroll()) {
+  .scroll-fade {
+    --sf-top: 0px;
+    --sf-bottom: var(--sf-size);
+    animation: sf-fade-top linear both, sf-fade-bottom linear both;
+    animation-timeline: scroll(self y), scroll(self y);
+    animation-range: 0 var(--sf-reveal, 96px), calc(100% - var(--sf-reveal, 96px)) 100%;
+  }
+  @keyframes sf-fade-top { to { --sf-top: var(--sf-size); } }
+  @keyframes sf-fade-bottom { to { --sf-bottom: 0px; } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-fade {
+    animation: none;
+    --sf-top: var(--sf-size);
+    --sf-bottom: var(--sf-size);
+  }
+}
+
+/* =====================================================
+   Compact markdown (PR Overview)
+   The shared BlockRenderer (RenderedMarkdown) is sized for full-page plans —
+   24px headings, 15px body, wide margins. `.md-compact` shrinks it to fit the
+   dense PR panel by overriding those inline utilities via specificity, so no
+   changes to the shared renderer components are needed.
+   ===================================================== */
+.md-compact {
+  font-size: 0.8125rem; /* 13px base */
+  line-height: 1.55;
+}
+.md-compact > :first-child { margin-top: 0; }
+.md-compact h1 { font-size: 0.9375rem; line-height: 1.35; margin: 0.75rem 0 0.375rem; letter-spacing: normal; } /* 15px */
+.md-compact h2 { font-size: 0.875rem;  line-height: 1.35; margin: 0.75rem 0 0.25rem; }  /* 14px */
+.md-compact h3 { font-size: 0.8125rem; line-height: 1.4;  margin: 0.625rem 0 0.25rem; } /* 13px */
+.md-compact h4,
+.md-compact h5,
+.md-compact h6 { font-size: 0.8125rem; line-height: 1.4; margin: 0.5rem 0 0.25rem; }
+.md-compact p  { font-size: 0.8125rem; line-height: 1.6; margin-bottom: 0.5rem; } /* 13px */
+/* list items (and other text-sm prose) render at the plan's 14px — bring them
+   down to the 13px body and give a matching line-height. */
+.md-compact .text-sm { font-size: 0.8125rem; line-height: 1.55; }
+.md-compact hr { margin: 0.875rem 0; }
+.md-compact blockquote { margin: 0.5rem 0; }
+/* Code blocks: the plan-sized CodeBlock keeps text-[13px] + a 20px my-5 margin,
+   so it reads bulky next to the 13px body. Shrink the font below the body and
+   tighten the box. `.my-5` is unique to the code-block wrapper in this renderer. */
+.md-compact .my-5 { margin-top: 0.625rem; margin-bottom: 0.625rem; } /* was 20px */
+.md-compact pre { font-size: 0.75rem; }                              /* 12px, under the body */
+.md-compact pre code.hljs { padding: 0.5rem 0.625rem; }              /* tighter than hljs default */
+
+/* PR description + comment media: cap wide screenshots/videos to the card width
+   (GitHub embeds them at their natural size, e.g. width="1440"), and wrap long
+   unbroken tokens (Vercel bot hashes, long URLs) so content never bleeds past
+   the card edge. */
+.md-compact img,
+.md-compact video,
+.review-comment-markdown img,
+.review-comment-markdown video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.md-compact,
+.review-comment-markdown {
+  overflow-wrap: anywhere;
 }
