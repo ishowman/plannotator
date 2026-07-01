@@ -721,6 +721,18 @@ body:has([data-popout="true"]) [data-sidebar-tabs="true"] {
   margin: 0 -2px;
 }
 
+/* Math annotations style the rendered formula element directly rather than
+   wrapping text in a <mark>, so they need their own display handling. */
+.annotation-highlight.math-inline-annotation {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.annotation-highlight.math-block-annotation {
+  display: block;
+}
+
 .annotation-highlight.deletion {
   background: oklch(from var(--destructive) l c h / 0.35);
   text-decoration: line-through;
