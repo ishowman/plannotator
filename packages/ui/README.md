@@ -60,7 +60,7 @@ Building your own tooltip and removing the built-in double-click reset are host-
   ```
 - **The viewer resolves wiki-links synchronously.** `InlineMarkdown` takes `resolveLinkedDoc?: (target) => { label?; status?: 'active' | 'deleted' } | null` — called with the raw stored target (opaque ids like `doc_01XYZ`, no `.md` normalization). Return a `label` to display live titles (stored label is the fallback, target the last resort); return `status: 'deleted'` for a muted non-link ("Document deleted") instead of a live link. Absent or `null` → rendering is unchanged. Sync-only by design: back it with an in-memory cache.
 
-Requires `@plannotator/markdown-editor ^0.3.1` and `@plannotator/atomic-editor ^0.6.0`. See HANDOFF.md § "Wiki-link seams (0.27.0)".
+Requires `@plannotator/markdown-editor ^0.3.2` and `@plannotator/atomic-editor ^0.7.0`. See HANDOFF.md § "Wiki-link seams (0.27.0)".
 
 ## Consuming it (e.g. from Workspaces)
 

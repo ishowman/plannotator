@@ -275,7 +275,7 @@ interface Annotation {
 
 3. **Module-level singletons, not a Provider.** Covered above — safe because Workspaces is client-side, not SSR. Only revisit if SSR is added.
 
-4. **~~The markdown editor can't take live-collab extensions yet.~~ RESOLVED in 0.27.0.** The plan of record shipped exactly as written: `@plannotator/atomic-editor` ≥0.6.0 and `@plannotator/markdown-editor` ≥0.3.1 thread an optional `extensions?` prop through to the CM6 editor, and the ui shim now declares and forwards it (see "Wiki-link seams (0.27.0)"). You can thread `y-codemirror.next` — or any CM6 extension, e.g. `wikiLinks` — through `components/MarkdownEditor`. Mind the capture-once-per-`documentId` caveat.
+4. **~~The markdown editor can't take live-collab extensions yet.~~ RESOLVED in 0.27.0.** The plan of record shipped exactly as written: `@plannotator/atomic-editor` ≥0.7.0 and `@plannotator/markdown-editor` ≥0.3.2 thread an optional `extensions?` prop through to the CM6 editor, and the ui shim now declares and forwards it (see "Wiki-link seams (0.27.0)"). You can thread `y-codemirror.next` — or any CM6 extension, e.g. `wikiLinks` — through `components/MarkdownEditor`. Mind the capture-once-per-`documentId` caveat.
 
 None of these block adoption. They're the honest "here's what we'd polish next" list.
 
@@ -367,7 +367,7 @@ Consumer-enablement round for wiki-links (Workspaces' `[[doc_01XYZ|label]]` link
 
    Build extensions against **your own** `@codemirror/*` install: both editor packages declare `@codemirror/state` as a peer, so there is one shared copy — a second copy breaks the editor. Seam pinned end-to-end by `components/MarkdownEditor.extensions.test.tsx` (a facet-based probe mounted through the shim reaches the engine DOM).
 
-2. **`wikiLinks` re-exported through the ui surface.** Hosts must not import `@plannotator/atomic-editor` (outside the import allowlist); `@plannotator/ui` is the single contract. `components/MarkdownEditor` re-exports `wikiLinks` and its types — `WikiLinksConfig`, `WikiLinkSuggestion`, `WikiLinkResolvedTarget`, `WikiLinkStatus`. Usage: build `wikiLinks(config)` and pass it via the `extensions` prop. The config callbacks (`suggest`, `resolve`, `onOpen`) may close over live state — see the capture-once caveat above.
+2. **`wikiLinks` re-exported through the ui surface.** Hosts must not import `@plannotator/atomic-editor` (outside the import allowlist); `@plannotator/ui` is the single contract. `components/MarkdownEditor` re-exports `wikiLinks` and its types — `WikiLinksConfig`, `WikiLinkSuggestion`, `WikiLinkResolvedTarget`, `WikiLinkStatus`. Usage: build `wikiLinks(config)` and pass it via the `extensions` prop. The config callbacks (`suggest`, `resolve`, `onOpen`) may close over live state — see the capture-once caveat above. Engine 0.7.0's `preferResolvedLabel?: boolean` flag (labeled `[[target|label]]` links opt into showing the resolved title instead of the stored label) is part of the re-exported `WikiLinksConfig`.
 
 3. **`InlineMarkdown` `resolveLinkedDoc`.** Synchronous host resolution of wiki-links in the *viewer*:
 
@@ -385,7 +385,7 @@ Consumer-enablement round for wiki-links (Workspaces' `[[doc_01XYZ|label]]` link
 
 4. **H-ask-1 retired.** The two one-line TS6133 fixes Workspaces carried against `components/html-viewer` (unused `React` default import in `HtmlViewer.tsx`; unused `annotations` destructured binding in `useHtmlAnnotation.ts`) are applied at source. The shipped html-viewer files pass `tsc` under the strict-consumer flags (`--noUnusedLocals` included) — **delete your patch on adoption.**
 
-**Dependency note:** 0.27.0 requires `@plannotator/markdown-editor ^0.3.1` (adds `extensions`) and `@plannotator/atomic-editor ^0.6.0` (adds `wikiLinks`).
+**Dependency note:** 0.27.0 requires `@plannotator/markdown-editor ^0.3.2` (adds `extensions`) and `@plannotator/atomic-editor ^0.7.0` (adds `wikiLinks` + `preferResolvedLabel`).
 
 ---
 

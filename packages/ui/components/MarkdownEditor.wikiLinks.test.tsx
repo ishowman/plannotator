@@ -38,6 +38,10 @@ describe('MarkdownEditor module: wikiLinks re-export', () => {
       onOpen: () => {},
       openOnClick: true,
       maxSuggestions: 10,
+      // Engine ≥0.7.0: labeled links opt into resolved titles. This line is
+      // the seam assertion — it fails typecheck if the flag ever drops out of
+      // the ui re-export of WikiLinksConfig.
+      preferResolvedLabel: true,
     };
     const extension = wikiLinks(config);
     expect(extension).toBeDefined();
