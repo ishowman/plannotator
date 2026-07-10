@@ -62,6 +62,22 @@ Building your own tooltip and removing the built-in double-click reset are host-
 
 Requires `@plannotator/markdown-editor ^0.3.2` and `@plannotator/atomic-editor ^0.7.0`. See HANDOFF.md § "Wiki-link seams (0.27.0)".
 
+### Frozen markdown diff (`MarkdownDiff`)
+
+- **`MarkdownDiff` renders two markdown revisions as a frozen, themed comparison** — the newer revision as the real (uncollapsed) document, deletions projected struck-through in place, char/word change emphasis, a change-count toolbar with prev/next, a clickable keyboard-accessible overview rail, and a changed-line gutter. The surface is never editable (edits are rejected at the state and view boundaries; the content DOM is `contenteditable="false"`).
+- **Same shim pattern as `MarkdownEditor`:** theme resolves from `ThemeProvider` (or pass `mode` directly), `gridEnabled` applies the identical card chrome, and `extensions` composes CM6 extensions — `wikiLinks` included — into the frozen view, with the same captured-once, stable-reference calling convention:
+  ```tsx
+  import { MarkdownDiff } from "@plannotator/ui/components/MarkdownDiff";
+  import { wikiLinks } from "@plannotator/ui/components/MarkdownEditor";
+
+  const diffExtensions = [wikiLinks({ resolve, onOpen })]; // stable reference!
+  <MarkdownDiff originalMarkdown={older} modifiedMarkdown={newer} documentId={docId}
+                editorHandleRef={ref} extensions={diffExtensions} />
+  ```
+- **Bytes are the contract:** `ref.current.getMarkdown()` / `.getOriginalMarkdown()` return the exact input strings (CRLF and trailing whitespace included); `getChangeCount()` / `goToNextChange()` / `goToPreviousChange()` drive review navigation.
+
+Requires `@plannotator/markdown-editor ^0.4.0` and `@plannotator/atomic-editor ^0.8.0` (which adds a `@codemirror/merge` peer — declared by this package). See HANDOFF.md § "Frozen markdown diff (0.28.0)".
+
 ## Consuming it (e.g. from Workspaces)
 
 ```bash
