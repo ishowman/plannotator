@@ -24,9 +24,12 @@ const PAD = 6;
 export function DestinationSpotlight({ targetRef, platformLabel, mrLabel, onDismiss }: DestinationSpotlightProps) {
   const [rect, setRect] = useState<DOMRect | null>(null);
 
-  // Measure the target after layout, and re-measure on resize. The header is
-  // position-static at the top of the viewport, so scroll tracking isn't
-  // needed; resize is (the header reflows between compact/full layouts).
+  // Measure the target after layout; re-measure on resize AND on a short
+  // interval — header siblings (error banners, partial-diff notices) mount
+  // async and shift the button horizontally without any window resize, and
+  // ResizeObserver can't see position-only changes. The overlay is transient
+  // (one-time coachmark), so a 250ms poll is bounded and cheap; setRect with
+  // an unchanged DOMRect still re-renders, but only while the overlay is up.
   useLayoutEffect(() => {
     const measure = () => {
       const el = targetRef.current;
@@ -34,16 +37,27 @@ export function DestinationSpotlight({ targetRef, platformLabel, mrLabel, onDism
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    const interval = window.setInterval(measure, 250);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.clearInterval(interval);
+    };
   }, [targetRef]);
 
-  // Escape dismisses, like every other one-time dialog in the chain.
+  // Escape dismisses like every other one-time dialog (capture + stop, so the
+  // topmost overlay is the only thing one Escape closes). Any OTHER
+  // non-modifier keypress means the user has moved on to real work (search,
+  // shortcuts, typing) — dismiss too, but let the event proceed so the
+  // shortcut still fires and its surface never opens under the dim.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         onDismiss();
+        return;
       }
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+      onDismiss();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -82,9 +96,10 @@ export function DestinationSpotlight({ targetRef, platformLabel, mrLabel, onDism
       >
         <div className="text-sm font-semibold text-foreground">Where should your review go?</div>
         <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-          You're reviewing a {mrLabel}, so your feedback can go two ways: post review comments
-          straight to {platformLabel}, or send them to your agent session. Use this switcher to
-          change the destination at any point — per review, no setup.
+          You're reviewing {/^[AEIOUM]/.test(mrLabel) ? 'an' : 'a'} {mrLabel}, so your feedback
+          can go two ways: post review comments straight to {platformLabel}, or send them to your
+          agent session. Use this switcher to change the destination at any point — per review,
+          no setup.
         </p>
         <p className="mt-2 text-[11px] text-muted-foreground/70">
           Tip: double-tap {kbd(altKey)} {kbd(altKey)} to switch quickly.
