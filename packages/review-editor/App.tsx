@@ -88,6 +88,8 @@ import { ReviewSetupDialog } from './components/ReviewSetupDialog';
 import { needsReviewSetup, markReviewSetupSeen } from './utils/reviewSetup';
 import { GuideIntroDialog } from './components/GuideIntroDialog';
 import { needsGuideIntro, markGuideIntroSeen, needsGuideHint, markGuideHintSeen } from './utils/guideIntro';
+import { DestinationSpotlight } from './components/DestinationSpotlight';
+import { needsDestinationSpotlight, markDestinationSpotlightSeen } from './utils/destinationSpotlight';
 import { TextShimmer } from '@plannotator/ui/components/TextShimmer';
 import type { PRMetadata } from '@plannotator/shared/pr-types';
 import type { PRDiffScope, PRDiffScopeOption, PRStackInfo, PRStackTree } from '@plannotator/shared/pr-stack';
@@ -341,6 +343,15 @@ const ReviewApp: React.FC = () => {
     return stored === 'agent' ? 'agent' : 'platform'; // 'github' (legacy) → 'platform'
   });
   const [showDestinationMenu, setShowDestinationMenu] = useState(false);
+  // One-time spotlight pointing first-time PR reviewers at the destination
+  // switcher. Renders only after the first-run dialog chain (guide intro →
+  // look-and-feel → review setup) has fully cleared.
+  const destToggleRef = useRef<HTMLButtonElement | null>(null);
+  const [showDestSpotlight, setShowDestSpotlight] = useState(needsDestinationSpotlight);
+  const dismissDestSpotlight = useCallback(() => {
+    markDestinationSpotlightSeen();
+    setShowDestSpotlight(false);
+  }, []);
   const [isPlatformActioning, setIsPlatformActioning] = useState(false);
   const [platformActionError, setPlatformActionError] = useState<string | null>(null);
   const [platformUser, setPlatformUser] = useState<string | null>(null);
@@ -2765,7 +2776,13 @@ const ReviewApp: React.FC = () => {
                 {prMetadata && (
                   <div className="relative">
                     <button
-                      onClick={() => setShowDestinationMenu(prev => !prev)}
+                      ref={destToggleRef}
+                      onClick={() => {
+                        // Opening the menu is discovery — the spotlight has
+                        // nothing left to teach.
+                        if (showDestSpotlight) dismissDestSpotlight();
+                        setShowDestinationMenu(prev => !prev);
+                      }}
                       className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-muted hover:bg-muted/80 transition-colors"
                       title={reviewDestination === 'platform' ? `Posting to ${platformLabel} ${mrLabel}` : 'Sending to agent session'}
                     >
@@ -3590,6 +3607,20 @@ const ReviewApp: React.FC = () => {
                 void handleDiffSwitch(chosen);
               }
             }}
+          />
+        )}
+
+        {/* One-time PR feedback-destination spotlight. Strictly AFTER the
+            first-run dialog chain (guide intro → look-and-feel → review
+            setup): it only mounts once none of the three is showing, so it
+            never stacks with them. PR mode only — the switcher it points at
+            doesn't render otherwise. */}
+        {showDestSpotlight && !!prMetadata && !isLoading && !showLookAndFeel && !guideIntroVisible && !showReviewSetup && (
+          <DestinationSpotlight
+            targetRef={destToggleRef}
+            platformLabel={platformLabel}
+            mrLabel={mrLabel}
+            onDismiss={dismissDestSpotlight}
           />
         )}
 
