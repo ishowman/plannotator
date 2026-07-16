@@ -5,7 +5,7 @@
  *
  * Environment variables:
  *   PLANNOTATOR_REMOTE - Set to "1"/"true" for remote, "0"/"false" for local
- *   PLANNOTATOR_PORT   - Fixed port to use (default: random locally, 19432 for remote)
+ *   PLANNOTATOR_PORT   - Fixed port or inclusive range (default: random locally, 19432 for remote)
  *   PLANNOTATOR_ORIGIN - Explicit origin override; validated against AGENT_CONFIG
  *                        in packages/shared/agents.ts. Supported values:
  *                        "claude-code", "opencode", "codex", "copilot-cli",
@@ -14,7 +14,7 @@
 
 import type { Origin } from "@plannotator/shared/agents";
 import { resolve } from "path";
-import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
+import { isRemoteSession, getServerHostname, startBunServerOnAvailablePort } from "./remote";
 import { openEditorDiff } from "./ide";
 import {
   saveToObsidian,
@@ -113,9 +113,6 @@ export interface ServerResult {
 
 // --- Server Implementation ---
 
-const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 500;
-
 /**
  * Start the Plannotator server
  *
@@ -131,7 +128,6 @@ export async function startPlannotatorServer(
   const { plan, origin, htmlContent, permissionMode, sharingEnabled = true, shareBaseUrl, pasteApiUrl, onReady, mode, customPlanPath } = options;
 
   const isRemote = isRemoteSession();
-  const configuredPort = getServerPort();
   const wslFlag = await isWSL();
   const gitUser = detectGitUser();
 
@@ -204,14 +200,10 @@ export async function startPlannotatorServer(
     decisionPromise = new Promise(() => {});
   }
 
-  // Start server with retry logic
-  let server: ReturnType<typeof Bun.serve> | null = null;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      server = Bun.serve({
+  const server = await startBunServerOnAvailablePort((port) =>
+    Bun.serve({
         hostname: getServerHostname(),
-        port: configuredPort,
+        port,
         // Bun's default 10s idleTimeout kills AI SSE streams that stall
         // between bytes (e.g. while a permission prompt waits on the user).
         idleTimeout: 0,
@@ -590,30 +582,8 @@ export async function startPlannotatorServer(
             { status: 500, headers: { "Content-Type": "text/plain" } },
           );
         },
-      });
-
-      break; // Success, exit retry loop
-    } catch (err: unknown) {
-      const isAddressInUse =
-        err instanceof Error && err.message.includes("EADDRINUSE");
-
-      if (isAddressInUse && attempt < MAX_RETRIES) {
-        await Bun.sleep(RETRY_DELAY_MS);
-        continue;
-      }
-
-      if (isAddressInUse) {
-        const hint = isRemote ? " (set PLANNOTATOR_PORT to use different port)" : "";
-        throw new Error(`Port ${configuredPort} in use after ${MAX_RETRIES} retries${hint}`);
-      }
-
-      throw err;
-    }
-  }
-
-  if (!server) {
-    throw new Error("Failed to start server");
-  }
+    }),
+  );
 
   const port = server.port!;
   const serverUrl = `http://localhost:${port}`;
