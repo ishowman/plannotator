@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useRef } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
+import { useReviewAnnotationToolbarShortcuts } from '@plannotator/ui/shortcuts';
 
 interface ExpandedCommentDialogProps {
   title: string;
@@ -27,112 +28,130 @@ export const ExpandedCommentDialog: React.FC<ExpandedCommentDialogProps> = ({
   onCollapse,
   onCancel,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const askAIEnabled = aiAvailable && !!onAskAI && commentText.trim().length > 0;
   const submitLabel = isEditing ? 'Update' : 'Add Comment';
 
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-      textarea.focus();
-      textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
-    }, 0);
-
-    return () => window.clearTimeout(id);
-  }, []);
+  useReviewAnnotationToolbarShortcuts({
+    target: 'document',
+    handlers: {
+      submitComment: {
+        when: (event) => canSubmit && !event.isComposing && event.target instanceof Node && !!dialogRef.current?.contains(event.target),
+        handle: (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSubmit();
+        },
+      },
+      cancel: {
+        when: (event) => event.target instanceof Node && !!dialogRef.current?.contains(event.target),
+        handle: (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onCollapse();
+        },
+      },
+    },
+  });
 
   const handleAskAI = () => {
     if (!askAIEnabled) return;
     onAskAI?.(commentText.trim());
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onCollapse} />
-      <div className="relative w-full max-w-2xl max-h-[85vh] bg-popover border border-border rounded-xl shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-          <span className="text-xs text-muted-foreground truncate">{title}</span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={onCollapse}
-              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              title="Collapse"
-              aria-label="Collapse expanded comment"
-            >
-              <CollapseIcon />
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              title="Close"
-              aria-label="Close expanded comment"
-            >
-              <CloseIcon />
-            </button>
-          </div>
-        </div>
-
-        <div className="px-4 py-3 min-h-0 flex-1">
-          <textarea
-            ref={textareaRef}
-            value={commentText}
-            onChange={(event) => setCommentText(event.target.value)}
-            placeholder="Leave feedback..."
-            className="w-full min-h-72 max-h-[56vh] bg-muted text-sm leading-relaxed placeholder:text-muted-foreground resize-y focus:outline-none rounded-lg border-0 px-3 py-2"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.stopPropagation();
-                onCollapse();
-                return;
-              }
-
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                onSubmit();
-              }
-            }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border/50">
-          <div>
-            {aiAvailable && (
+  return (
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) onCollapse();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-[1999] bg-background/80 backdrop-blur-sm" />
+        <Dialog.Popup
+          ref={dialogRef}
+          aria-modal="true"
+          initialFocus={() => {
+            const textarea = textareaRef.current;
+            if (textarea) {
+              textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+            }
+            return textarea;
+          }}
+          finalFocus={false}
+          className="fixed left-1/2 top-1/2 z-[2000] w-[calc(100vw-2rem)] max-w-2xl h-[min(36rem,85dvh)] max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden bg-popover border border-border rounded-xl shadow-2xl flex flex-col"
+        >
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/50">
+            <Dialog.Title className="text-xs font-normal text-muted-foreground truncate">{title}</Dialog.Title>
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={handleAskAI}
-                disabled={!askAIEnabled}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title={askAIEnabled ? 'Ask AI this question' : 'Type a question to ask AI'}
+                onClick={onCollapse}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                title="Collapse"
+                aria-label="Collapse expanded comment"
               >
-                <SparklesIcon className="w-3 h-3" />
-                Ask AI
+                <CollapseIcon />
               </button>
-            )}
+              <button
+                type="button"
+                onClick={onCancel}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                title="Close"
+                aria-label="Close expanded comment"
+              >
+                <CloseIcon />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onCollapse}
-              className="review-toolbar-btn"
-            >
-              Collapse
-            </button>
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={!canSubmit}
-              className="review-toolbar-btn primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {submitLabel}
-            </button>
+
+          <div className="px-4 py-3 min-h-0 flex-1 flex">
+            <textarea
+              ref={textareaRef}
+              value={commentText}
+              onChange={(event) => setCommentText(event.target.value)}
+              placeholder="Leave feedback..."
+              className="w-full h-full min-h-0 max-h-full bg-muted text-sm leading-relaxed placeholder:text-muted-foreground resize-y focus:outline-none rounded-lg border-0 px-3 py-2"
+            />
           </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
+
+          <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-t border-border/50">
+            <div>
+              {aiAvailable && (
+                <button
+                  type="button"
+                  onClick={handleAskAI}
+                  disabled={!askAIEnabled}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title={askAIEnabled ? 'Ask AI this question' : 'Type a question to ask AI'}
+                >
+                  <SparklesIcon className="w-3 h-3" />
+                  Ask AI
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onCollapse}
+                className="review-toolbar-btn"
+              >
+                Collapse
+              </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={!canSubmit}
+                className="review-toolbar-btn primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitLabel}
+              </button>
+            </div>
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 };
 

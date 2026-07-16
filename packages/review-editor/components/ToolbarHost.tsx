@@ -111,6 +111,13 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
     toolbar.setShowCommentModal(false);
     toolbar.handleCancel();
   }, [toolbar.handleCancel, toolbar.setShowCommentModal]);
+  const handleExpandedAskAI = useCallback((question: string) => {
+    if (!onAskAI) return;
+    onAskAI(question);
+    toolbar.setCommentText('');
+    toolbar.setAskAIMode(true);
+    toolbar.setShowCommentModal(false);
+  }, [onAskAI, toolbar.setAskAIMode, toolbar.setCommentText, toolbar.setShowCommentModal]);
 
   const expandedCommentTitle = useMemo(() => {
     const toolbarState = toolbar.toolbarState;
@@ -135,6 +142,8 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
           showSuggestedCode={toolbar.showSuggestedCode}
           setShowSuggestedCode={toolbar.setShowSuggestedCode}
           selectedOriginalCode={toolbar.selectedOriginalCode}
+          askAIMode={toolbar.askAIMode}
+          setAskAIMode={toolbar.setAskAIMode}
           setShowCodeModal={toolbar.setShowCodeModal}
           setShowCommentModal={toolbar.setShowCommentModal}
           isEditing={!!toolbar.editingAnnotationId}
@@ -163,7 +172,7 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
           isEditing={!!toolbar.editingAnnotationId}
           canSubmit={canSubmitAnnotation}
           aiAvailable={aiAvailable && !toolbar.editingAnnotationId}
-          onAskAI={onAskAI}
+          onAskAI={handleExpandedAskAI}
           onSubmit={toolbar.handleSubmitAnnotation}
           onCollapse={handleCollapseCommentModal}
           onCancel={handleCancelCommentModal}

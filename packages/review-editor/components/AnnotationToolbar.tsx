@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ToolbarState } from '../hooks/useAnnotationToolbar';
 import { useTabIndent } from '../hooks/useTabIndent';
@@ -21,6 +21,8 @@ interface AnnotationToolbarProps {
   setShowSuggestedCode: (show: boolean) => void;
   selectedOriginalCode?: string;
   isEditing?: boolean;
+  askAIMode: boolean;
+  setAskAIMode: (show: boolean) => void;
   setShowCodeModal: (show: boolean) => void;
   setShowCommentModal: (show: boolean) => void;
   onSubmit: () => void;
@@ -54,6 +56,8 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   setShowSuggestedCode,
   selectedOriginalCode,
   isEditing = false,
+  askAIMode,
+  setAskAIMode,
   setShowCodeModal,
   setShowCommentModal,
   onSubmit,
@@ -73,7 +77,6 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 }) => {
   const suggestedCodeRef = useRef<HTMLTextAreaElement>(null);
   const handleTabIndent = useTabIndent(setSuggestedCode);
-  const [askAIMode, setAskAIMode] = useState(false);
   const { dragPosition, dragHandleProps, wasDragged, reset: resetDrag } = useDraggable(toolbarRef);
 
   // Reset drag when toolbar reopens for a new selection
