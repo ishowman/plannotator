@@ -5,6 +5,7 @@ import {
   parseReviewProfileByEngine,
   sanitizeCodexPerModel,
 } from "./useAgentSettings";
+import { clampCodexReasoning } from "../utils/codexModels";
 
 describe("sanitizeCodexPerModel", () => {
   test("returns empty object for undefined/empty input", () => {
@@ -25,6 +26,18 @@ describe("sanitizeCodexPerModel", () => {
     });
     expect(result).toEqual({
       "gpt-5.3-codex": { reasoning: DEFAULT_CODEX_REASONING, fast: true },
+    });
+  });
+
+  test("migrates reasoning: 'minimal' to 'low', preserving fast", () => {
+    expect(
+      sanitizeCodexPerModel({
+        "gpt-5.5": { reasoning: "minimal", fast: true },
+        "gpt-5.6-sol": { reasoning: "minimal", fast: false },
+      }),
+    ).toEqual({
+      "gpt-5.5": { reasoning: "low", fast: true },
+      "gpt-5.6-sol": { reasoning: "low", fast: false },
     });
   });
 
@@ -100,6 +113,95 @@ describe("migrateCodexSection", () => {
       };
       expect(migrateCodexSection(section, "gpt-5.5")).toEqual(section);
     }
+  });
+
+  test("keeps gpt-5.2 (still API-valid — only the ChatGPT product retired it)", () => {
+    expect(migrateCodexSection({ model: "gpt-5.2", perModel: {} }, "gpt-5.5").model).toBe("gpt-5.2");
+  });
+
+  test("moves API-shut-down picks with no direct replacement to the fallback", () => {
+    for (const model of ["gpt-5.2-codex", "gpt-5.1-codex-max"]) {
+      expect(migrateCodexSection({ model, perModel: {} }, "gpt-5.5").model).toBe("gpt-5.5");
+    }
+  });
+
+  test("moves a gpt-5.1-codex-mini pick and preference to gpt-5.4-mini", () => {
+    expect(
+      migrateCodexSection(
+        {
+          model: "gpt-5.1-codex-mini",
+          perModel: {
+            "gpt-5.1-codex-mini": { reasoning: "xhigh", fast: true },
+            "gpt-5.5": { reasoning: "medium", fast: false },
+          },
+        },
+        "gpt-5.5",
+      ),
+    ).toEqual({
+      model: "gpt-5.4-mini",
+      perModel: {
+        "gpt-5.4-mini": { reasoning: "xhigh", fast: true },
+        "gpt-5.5": { reasoning: "medium", fast: false },
+      },
+    });
+  });
+
+  test("keeps the canonical gpt-5.4-mini preference when both keys exist", () => {
+    expect(
+      migrateCodexSection(
+        {
+          model: "gpt-5.1-codex-mini",
+          perModel: {
+            "gpt-5.1-codex-mini": { reasoning: "low", fast: false },
+            "gpt-5.4-mini": { reasoning: "high", fast: true },
+          },
+        },
+        "gpt-5.5",
+      ),
+    ).toEqual({
+      model: "gpt-5.4-mini",
+      perModel: {
+        "gpt-5.4-mini": { reasoning: "high", fast: true },
+      },
+    });
+  });
+
+  test("moves a saved gpt-5.3-codex pick to the fallback and minimal reasoning to low", () => {
+    expect(
+      migrateCodexSection(
+        {
+          model: "gpt-5.3-codex",
+          perModel: {
+            "gpt-5.3-codex": { reasoning: "minimal", fast: true },
+          },
+        },
+        "gpt-5.5",
+      ),
+    ).toEqual({
+      model: "gpt-5.5",
+      perModel: {
+        "gpt-5.3-codex": { reasoning: "low", fast: true },
+      },
+    });
+  });
+});
+
+describe("clampCodexReasoning", () => {
+  test("keeps a supported effort", () => {
+    expect(clampCodexReasoning("gpt-5.6-sol", "ultra")).toBe("ultra");
+    expect(clampCodexReasoning("gpt-5.6-luna", "max")).toBe("max");
+    expect(clampCodexReasoning("gpt-5.5", "xhigh")).toBe("xhigh");
+  });
+
+  test("snaps an unsupported effort to the model's catalog default", () => {
+    expect(clampCodexReasoning("gpt-5.5", "max")).toBe("medium");
+    expect(clampCodexReasoning("gpt-5.6-luna", "ultra")).toBe("medium");
+    expect(clampCodexReasoning("gpt-5.3-codex-spark", "minimal")).toBe("high");
+    expect(clampCodexReasoning("gpt-5.6-sol", "minimal")).toBe("low");
+  });
+
+  test("passes unknown models through unchanged", () => {
+    expect(clampCodexReasoning("future-codex-model", "max")).toBe("max");
   });
 });
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from '../utils/storage';
+import { clampCodexReasoning } from '../utils/codexModels';
 
 const COOKIE_KEY = 'plannotator.agents';
 
@@ -176,7 +177,9 @@ const initialState: AgentSettingsState = {
 
 // One-shot migration: drop any cached "none" codex reasoning entries. The
 // dropdown no longer offers "None" (codex-rs rejects it as a config value);
-// fall back to the default instead of shipping an invalid flag.
+// fall back to the default instead of shipping an invalid flag. Saved
+// "minimal" entries migrate to "low": no current Codex model supports
+// minimal, and low is the nearest effort that every model does.
 export function sanitizeCodexPerModel(
   perModel: Record<string, { reasoning: string; fast: boolean }> | undefined,
 ): Record<string, { reasoning: string; fast: boolean }> {
@@ -188,10 +191,28 @@ export function sanitizeCodexPerModel(
       if (entry.fast) out[model] = { reasoning: DEFAULT_CODEX_REASONING, fast: true };
       continue;
     }
+    if (entry.reasoning === 'minimal') {
+      out[model] = { ...entry, reasoning: 'low' };
+      continue;
+    }
     out[model] = entry;
   }
   return out;
 }
+
+// Saved model IDs that migrate to a direct replacement: the stale gpt-5.6
+// slug (renamed to -sol when the tiered family shipped) and gpt-5.1-codex-mini
+// (API shutdown 2026-07-23; gpt-5.4-mini is OpenAI's recommended replacement).
+const RENAMED_CODEX_MODELS: Record<string, string> = {
+  'gpt-5.6': 'gpt-5.6-sol',
+  'gpt-5.1-codex-mini': 'gpt-5.4-mini',
+};
+
+// Saved model IDs with no direct replacement — migrate to the surface's
+// fallback. gpt-5.3-codex is rejected outright by ChatGPT-account Codex;
+// gpt-5.2-codex and gpt-5.1-codex-max hit the API-level shutdown on
+// 2026-07-23 (OpenAI recommends gpt-5.5, which every fallback already is).
+const RETIRED_CODEX_MODELS = new Set(['gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.1-codex-max']);
 
 // One-shot model migrations for a saved Codex section. Keep its per-model
 // preferences aligned with the canonical model ID while sanitizing them.
@@ -200,19 +221,19 @@ export function migrateCodexSection(
   fallback: string,
 ): CodexSection {
   const perModel = sanitizeCodexPerModel(section?.perModel);
-  const legacyPreference = perModel['gpt-5.6'];
-  if (legacyPreference) {
-    perModel['gpt-5.6-sol'] ??= legacyPreference;
-    delete perModel['gpt-5.6'];
+  for (const [legacy, replacement] of Object.entries(RENAMED_CODEX_MODELS)) {
+    const legacyPreference = perModel[legacy];
+    if (legacyPreference) {
+      perModel[replacement] ??= legacyPreference;
+      delete perModel[legacy];
+    }
   }
 
   const savedModel = section?.model;
   const model =
-    savedModel === 'gpt-5.6'
-      ? 'gpt-5.6-sol'
-      : typeof savedModel !== 'string' || savedModel === 'gpt-5.3-codex'
-        ? fallback
-        : savedModel;
+    typeof savedModel !== 'string' || RETIRED_CODEX_MODELS.has(savedModel)
+      ? fallback
+      : (RENAMED_CODEX_MODELS[savedModel] ?? savedModel);
   return { model, perModel };
 }
 
@@ -514,13 +535,27 @@ export function useAgentSettings() {
   }, []);
 
   const claudeEffort = state.claude.perModel[state.claude.model]?.effort ?? DEFAULT_CLAUDE_EFFORT;
-  const codexReasoning = state.codex.perModel[state.codex.model]?.reasoning ?? DEFAULT_CODEX_REASONING;
+  // Codex reasoning is clamped through the model's supported-effort set: a
+  // saved (or surface-default) effort the selected model doesn't support
+  // snaps to that model's catalog default. Every consumer — the pickers AND
+  // the launch payloads — reads these derived values, so an unsupported
+  // effort can never reach `-c model_reasoning_effort=`.
+  const codexReasoning = clampCodexReasoning(
+    state.codex.model,
+    state.codex.perModel[state.codex.model]?.reasoning ?? DEFAULT_CODEX_REASONING,
+  );
   const codexFast = state.codex.perModel[state.codex.model]?.fast ?? DEFAULT_CODEX_FAST;
   const tourClaudeEffort = state.tourClaude.perModel[state.tourClaude.model]?.effort ?? DEFAULT_TOUR_CLAUDE_EFFORT;
-  const tourCodexReasoning = state.tourCodex.perModel[state.tourCodex.model]?.reasoning ?? DEFAULT_TOUR_CODEX_REASONING;
+  const tourCodexReasoning = clampCodexReasoning(
+    state.tourCodex.model,
+    state.tourCodex.perModel[state.tourCodex.model]?.reasoning ?? DEFAULT_TOUR_CODEX_REASONING,
+  );
   const tourCodexFast = state.tourCodex.perModel[state.tourCodex.model]?.fast ?? DEFAULT_TOUR_CODEX_FAST;
   const guideClaudeEffort = state.guideClaude.perModel[state.guideClaude.model]?.effort ?? DEFAULT_GUIDE_CLAUDE_EFFORT;
-  const guideCodexReasoning = state.guideCodex.perModel[state.guideCodex.model]?.reasoning ?? DEFAULT_GUIDE_CODEX_REASONING;
+  const guideCodexReasoning = clampCodexReasoning(
+    state.guideCodex.model,
+    state.guideCodex.perModel[state.guideCodex.model]?.reasoning ?? DEFAULT_GUIDE_CODEX_REASONING,
+  );
 
   return {
     selectedMode: state.selectedMode,
