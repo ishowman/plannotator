@@ -341,7 +341,7 @@ Settings are saved in cookies (not localStorage) because each hook invocation ru
 | `PLANNOTATOR_ORIGIN` | Override agent detection: `claude-code`, `amp`, `droid`, `opencode`, `codex`, `copilot-cli`, `gemini-cli`, `kiro-cli`, `pi` |
 | `PLANNOTATOR_JINA` | `0`/`false` to disable Jina Reader for URL annotation |
 | `JINA_API_KEY` | Jina Reader API key for higher rate limits |
-| `PLANNOTATOR_DATA_DIR` | Base directory for all Plannotator data (plans, history, drafts, `config.json`). Default: `~/.plannotator`; if that directory doesn't exist and `$XDG_DATA_HOME` is set, `$XDG_DATA_HOME/plannotator` is used instead |
+| `PLANNOTATOR_DATA_DIR` | Base directory for all Plannotator data (plans, history, drafts, `config.json`). Default: `~/.plannotator`; if that directory doesn't exist and `$XDG_DATA_HOME` is set to an absolute path, `$XDG_DATA_HOME/plannotator` is used instead |
 
 All Plannotator data lives in a single directory — `~/.plannotator` by default. To relocate it (e.g. for an XDG-clean home):
 
